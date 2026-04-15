@@ -1,8 +1,14 @@
-# New-API Docker Compose Configuration
-# 
+# New-API Remote Deploy Compose Configuration
+#
 # Quick Start:
-#   1. docker compose up -d --build
+#   1. If the image package is private, run: docker login ghcr.io
+#   2. docker compose pull
+#   3. docker compose up -d
 #   2. Access at http://localhost:3000
+#
+# Optional:
+#   - Override image tag with NEW_API_IMAGE, for example:
+#     NEW_API_IMAGE=ghcr.io/astorm-z/new-api:sha-<commit>
 #
 # Using MySQL instead of PostgreSQL:
 #   1. Comment out the postgres service and SQL_DSN line 15
@@ -14,10 +20,8 @@
 
 services:
   new-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: new-api:local
+    image: ${NEW_API_IMAGE:-ghcr.io/astorm-z/new-api:latest}
+    pull_policy: always
     container_name: new-api
     restart: always
     command: --log-dir /app/logs
