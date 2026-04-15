@@ -122,7 +122,8 @@ const PaymentConfirmModal = ({
                   if (payMethod) {
                     return (
                       <>
-                        {payMethod.type === 'alipay' ? (
+                        {payMethod.type === 'alipay' ||
+                        payMethod.type === 'enterprise_alipay' ? (
                           <SiAlipay
                             className='mr-2'
                             size={16}
@@ -156,7 +157,7 @@ const PaymentConfirmModal = ({
                     );
                   } else {
                     // 默认充值方式
-                    if (payWay === 'alipay') {
+                    if (payWay === 'alipay' || payWay === 'enterprise_alipay') {
                       return (
                         <>
                           <SiAlipay
@@ -165,7 +166,11 @@ const PaymentConfirmModal = ({
                             color='#1677FF'
                           />
                           <Text className='text-slate-900 dark:text-slate-100'>
-                            {t('支付宝')}
+                            {t(
+                              payWay === 'enterprise_alipay'
+                                ? '企业支付宝'
+                                : '支付宝',
+                            )}
                           </Text>
                         </>
                       );

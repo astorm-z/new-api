@@ -44,7 +44,18 @@ const { Text } = Typography;
 // 过滤易支付方式
 function getEpayMethods(payMethods = []) {
   return (payMethods || []).filter(
-    (m) => m?.type && m.type !== 'stripe' && m.type !== 'creem',
+    (m) =>
+      m?.type &&
+      m.type !== 'stripe' &&
+      m.type !== 'creem' &&
+      m.type !== 'waffo' &&
+      m.type !== 'enterprise_alipay',
+  );
+}
+
+function getEnterpriseAlipayMethod(payMethods = []) {
+  return (
+    (payMethods || []).find((m) => m?.type === 'enterprise_alipay') || null
   );
 }
 
@@ -75,6 +86,7 @@ const SubscriptionPlansCard = ({
   plans = [],
   payMethods = [],
   enableOnlineTopUp = false,
+  enableAlipayTopUp = false,
   enableStripeTopUp = false,
   enableCreemTopUp = false,
   billingPreference,
@@ -91,6 +103,10 @@ const SubscriptionPlansCard = ({
   const [refreshing, setRefreshing] = useState(false);
 
   const epayMethods = useMemo(() => getEpayMethods(payMethods), [payMethods]);
+  const enterpriseAlipayMethod = useMemo(
+    () => getEnterpriseAlipayMethod(payMethods),
+    [payMethods],
+  );
 
   const openBuy = (p) => {
     setSelectedPlan(p);
@@ -179,6 +195,30 @@ const SubscriptionPlansCard = ({
       const res = await API.post('/api/subscription/epay/pay', {
         plan_id: selectedPlan.plan.id,
         payment_method: selectedEpayMethod,
+      });
+      if (res.data?.message === 'success') {
+        submitEpayForm({ url: res.data.url, params: res.data.data });
+        showSuccess(t('已发起支付'));
+        closeBuy();
+      } else {
+        const errorMsg =
+          typeof res.data?.data === 'string'
+            ? res.data.data
+            : res.data?.message || t('支付失败');
+        showError(errorMsg);
+      }
+    } catch (e) {
+      showError(t('支付请求失败'));
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const payEnterpriseAlipay = async () => {
+    setPaying(true);
+    try {
+      const res = await API.post('/api/subscription/alipay/pay', {
+        plan_id: selectedPlan.plan.id,
       });
       if (res.data?.message === 'success') {
         submitEpayForm({ url: res.data.url, params: res.data.data });
@@ -671,8 +711,10 @@ const SubscriptionPlansCard = ({
         setSelectedEpayMethod={setSelectedEpayMethod}
         epayMethods={epayMethods}
         enableOnlineTopUp={enableOnlineTopUp}
+        enableAlipayTopUp={enableAlipayTopUp}
         enableStripeTopUp={enableStripeTopUp}
         enableCreemTopUp={enableCreemTopUp}
+        enterpriseAlipayMethod={enterpriseAlipayMethod}
         purchaseLimitInfo={
           selectedPlan?.plan?.id
             ? {
@@ -684,6 +726,7 @@ const SubscriptionPlansCard = ({
         onPayStripe={payStripe}
         onPayCreem={payCreem}
         onPayEpay={payEpay}
+        onPayEnterpriseAlipay={payEnterpriseAlipay}
       />
     </>
   );

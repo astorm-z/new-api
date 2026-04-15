@@ -1,7 +1,7 @@
 # New-API Docker Compose Configuration
 # 
 # Quick Start:
-#   1. docker-compose up -d
+#   1. docker compose up -d --build
 #   2. Access at http://localhost:3000
 #
 # Using MySQL instead of PostgreSQL:
@@ -12,11 +12,12 @@
 #
 # ⚠️  IMPORTANT: Change all default passwords before deploying to production!
 
-version: '3.4' # For compatibility with older Docker versions
-
 services:
   new-api:
-    image: calciumion/new-api:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: new-api:local
     container_name: new-api
     restart: always
     command: --log-dir /app/logs

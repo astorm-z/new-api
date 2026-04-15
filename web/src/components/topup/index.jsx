@@ -58,6 +58,7 @@ const TopUp = () => {
   const [enableOnlineTopUp, setEnableOnlineTopUp] = useState(
     statusState?.status?.enable_online_topup || false,
   );
+  const [enableAlipayTopUp, setEnableAlipayTopUp] = useState(false);
   const [priceRatio, setPriceRatio] = useState(statusState?.status?.price || 1);
 
   const [enableStripeTopUp, setEnableStripeTopUp] = useState(
@@ -75,6 +76,7 @@ const TopUp = () => {
   const [enableWaffoTopUp, setEnableWaffoTopUp] = useState(false);
   const [waffoPayMethods, setWaffoPayMethods] = useState([]);
   const [waffoMinTopUp, setWaffoMinTopUp] = useState(1);
+  const [alipayMinTopUp, setAlipayMinTopUp] = useState(1);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [open, setOpen] = useState(false);
@@ -162,6 +164,11 @@ const TopUp = () => {
         showError(t('管理员未开启Stripe充值！'));
         return;
       }
+    } else if (payment === 'enterprise_alipay') {
+      if (!enableAlipayTopUp) {
+        showError(t('管理员未开启企业支付宝充值！'));
+        return;
+      }
     } else {
       if (!enableOnlineTopUp) {
         showError(t('管理员未开启在线充值！'));
@@ -174,12 +181,15 @@ const TopUp = () => {
     try {
       if (payment === 'stripe') {
         await getStripeAmount();
+      } else if (payment === 'enterprise_alipay') {
+        await getAlipayAmount();
       } else {
         await getAmount();
       }
 
-      if (topUpCount < minTopUp) {
-        showError(t('充值数量不能小于') + minTopUp);
+      const paymentMinTopUp = getPaymentMinTopUp(payment);
+      if (topUpCount < paymentMinTopUp) {
+        showError(t('充值数量不能小于') + paymentMinTopUp);
         return;
       }
       setOpen(true);
@@ -196,6 +206,10 @@ const TopUp = () => {
       if (amount === 0) {
         await getStripeAmount();
       }
+    } else if (payWay === 'enterprise_alipay') {
+      if (amount === 0) {
+        await getAlipayAmount();
+      }
     } else {
       // 普通支付处理
       if (amount === 0) {
@@ -203,8 +217,9 @@ const TopUp = () => {
       }
     }
 
-    if (topUpCount < minTopUp) {
-      showError('充值数量不能小于' + minTopUp);
+    const paymentMinTopUp = getPaymentMinTopUp(payWay);
+    if (topUpCount < paymentMinTopUp) {
+      showError(t('充值数量不能小于') + paymentMinTopUp);
       return;
     }
     setConfirmLoading(true);
@@ -215,6 +230,11 @@ const TopUp = () => {
         res = await API.post('/api/user/stripe/pay', {
           amount: parseInt(topUpCount),
           payment_method: 'stripe',
+        });
+      } else if (payWay === 'enterprise_alipay') {
+        res = await API.post('/api/user/alipay/pay', {
+          amount: parseInt(topUpCount),
+          payment_method: 'enterprise_alipay',
         });
       } else {
         // 普通支付请求
@@ -460,6 +480,8 @@ const TopUp = () => {
               if (!method.color) {
                 if (method.type === 'alipay') {
                   method.color = 'rgba(var(--semi-blue-5), 1)';
+                } else if (method.type === 'enterprise_alipay') {
+                  method.color = 'rgba(var(--semi-blue-5), 1)';
                 } else if (method.type === 'wxpay') {
                   method.color = 'rgba(var(--semi-green-5), 1)';
                 } else if (method.type === 'stripe') {
@@ -480,21 +502,34 @@ const TopUp = () => {
           setPayMethods(payMethods);
           const enableStripeTopUp = data.enable_stripe_topup || false;
           const enableOnlineTopUp = data.enable_online_topup || false;
+          const enableAlipayTopUp = data.enable_alipay_topup || false;
           const enableCreemTopUp = data.enable_creem_topup || false;
-          const minTopUpValue = enableOnlineTopUp
-            ? data.min_topup
-            : enableStripeTopUp
-              ? data.stripe_min_topup
-              : data.enable_waffo_topup
-                ? data.waffo_min_topup
-                : 1;
+          const enableWaffoTopUp = data.enable_waffo_topup || false;
+          const candidateMinTopups = [];
+          if (enableOnlineTopUp) {
+            candidateMinTopups.push(Number(data.min_topup) || 1);
+          }
+          if (enableAlipayTopUp) {
+            candidateMinTopups.push(Number(data.alipay_min_topup) || 1);
+          }
+          if (enableStripeTopUp) {
+            candidateMinTopups.push(Number(data.stripe_min_topup) || 1);
+          }
+          if (enableWaffoTopUp) {
+            candidateMinTopups.push(Number(data.waffo_min_topup) || 1);
+          }
+          const minTopUpValue =
+            candidateMinTopups.length > 0
+              ? Math.min(...candidateMinTopups)
+              : 1;
           setEnableOnlineTopUp(enableOnlineTopUp);
+          setEnableAlipayTopUp(enableAlipayTopUp);
           setEnableStripeTopUp(enableStripeTopUp);
           setEnableCreemTopUp(enableCreemTopUp);
-          const enableWaffoTopUp = data.enable_waffo_topup || false;
           setEnableWaffoTopUp(enableWaffoTopUp);
           setWaffoPayMethods(data.waffo_pay_methods || []);
           setWaffoMinTopUp(data.waffo_min_topup || 1);
+          setAlipayMinTopUp(data.alipay_min_topup || 1);
           setMinTopUp(minTopUpValue);
           setTopUpCount(minTopUpValue);
 
@@ -667,6 +702,45 @@ const TopUp = () => {
     }
   };
 
+  const getAlipayAmount = async (value) => {
+    if (value === undefined) {
+      value = topUpCount;
+    }
+    setAmountLoading(true);
+    try {
+      const res = await API.post('/api/user/alipay/amount', {
+        amount: parseFloat(value),
+      });
+      if (res !== undefined) {
+        const { message, data } = res.data;
+        if (message === 'success') {
+          setAmount(parseFloat(data));
+        } else {
+          setAmount(0);
+          Toast.error({ content: '错误：' + data, id: 'getAlipayAmount' });
+        }
+      } else {
+        showError(res);
+      }
+    } catch (err) {
+      // amount fetch failed silently
+    } finally {
+      setAmountLoading(false);
+    }
+  };
+
+  const getPaymentMinTopUp = (payment) => {
+    const matchedMethod = payMethods.find((method) => method.type === payment);
+    const methodMinTopUp = Number(matchedMethod?.min_topup);
+    if (Number.isFinite(methodMinTopUp) && methodMinTopUp > 0) {
+      return methodMinTopUp;
+    }
+    if (payment === 'enterprise_alipay') {
+      return Number(alipayMinTopUp) || 1;
+    }
+    return minTopUp;
+  };
+
   const handleCancel = () => {
     setOpen(false);
   };
@@ -784,6 +858,7 @@ const TopUp = () => {
         <RechargeCard
           t={t}
           enableOnlineTopUp={enableOnlineTopUp}
+          enableAlipayTopUp={enableAlipayTopUp}
           enableStripeTopUp={enableStripeTopUp}
           enableCreemTopUp={enableCreemTopUp}
           creemProducts={creemProducts}

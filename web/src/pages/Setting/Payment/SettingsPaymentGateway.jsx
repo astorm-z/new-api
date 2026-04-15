@@ -219,7 +219,7 @@ export default function SettingsPaymentGateway(props) {
         <Form.Section text={t('支付设置')}>
           <Text>
             {t(
-              '（当前仅支持易支付接口，默认使用上方服务器地址作为回调地址！）',
+              '（当前支持易支付接口；企业支付宝直连请在下方单独配置，默认使用上方服务器地址作为回调地址！）',
             )}
           </Text>
           <Row gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}>

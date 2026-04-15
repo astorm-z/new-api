@@ -24,20 +24,19 @@ import (
 
 func GetTopUpInfo(c *gin.Context) {
 	// 获取支付方式
-	payMethods := operation_setting.PayMethods
+	payMethods := make([]map[string]string, 0, len(operation_setting.PayMethods))
+	for _, method := range operation_setting.PayMethods {
+		cloned := make(map[string]string, len(method))
+		for key, value := range method {
+			cloned[key] = value
+		}
+		payMethods = append(payMethods, cloned)
+	}
 
 	// 如果启用了 Stripe 支付，添加到支付方法列表
 	if setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "" {
 		// 检查是否已经包含 Stripe
-		hasStripe := false
-		for _, method := range payMethods {
-			if method["type"] == "stripe" {
-				hasStripe = true
-				break
-			}
-		}
-
-		if !hasStripe {
+		if !containsPayMethodType(payMethods, "stripe") {
 			stripeMethod := map[string]string{
 				"name":      "Stripe",
 				"type":      "stripe",
@@ -59,15 +58,7 @@ func GetTopUpInfo(c *gin.Context) {
 				setting.WaffoSandboxPrivateKey != "" &&
 				setting.WaffoSandboxPublicCert != ""))
 	if enableWaffo {
-		hasWaffo := false
-		for _, method := range payMethods {
-			if method["type"] == "waffo" {
-				hasWaffo = true
-				break
-			}
-		}
-
-		if !hasWaffo {
+		if !containsPayMethodType(payMethods, "waffo") {
 			waffoMethod := map[string]string{
 				"name":      "Waffo (Global Payment)",
 				"type":      "waffo",
@@ -78,8 +69,20 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
+	enableAlipay := isAlipayEnabled()
+	if enableAlipay && !containsPayMethodType(payMethods, PaymentMethodEnterpriseAlipay) {
+		alipayMethod := map[string]string{
+			"name":      "企业支付宝",
+			"type":      PaymentMethodEnterpriseAlipay,
+			"color":     "rgba(var(--semi-blue-5), 1)",
+			"min_topup": strconv.Itoa(setting.AlipayMinTopUp),
+		}
+		payMethods = append(payMethods, alipayMethod)
+	}
+
 	data := gin.H{
 		"enable_online_topup": operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "",
+		"enable_alipay_topup": enableAlipay,
 		"enable_stripe_topup": setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "",
 		"enable_creem_topup":  setting.CreemApiKey != "" && setting.CreemProducts != "[]",
 		"enable_waffo_topup": enableWaffo,
@@ -92,12 +95,22 @@ func GetTopUpInfo(c *gin.Context) {
 		"creem_products": setting.CreemProducts,
 		"pay_methods":         payMethods,
 		"min_topup":           operation_setting.MinTopUp,
+		"alipay_min_topup":    setting.AlipayMinTopUp,
 		"stripe_min_topup":    setting.StripeMinTopUp,
 		"waffo_min_topup":     setting.WaffoMinTopUp,
 		"amount_options":      operation_setting.GetPaymentSetting().AmountOptions,
 		"discount":            operation_setting.GetPaymentSetting().AmountDiscount,
 	}
 	common.ApiSuccess(c, data)
+}
+
+func containsPayMethodType(payMethods []map[string]string, payMethodType string) bool {
+	for _, method := range payMethods {
+		if method["type"] == payMethodType {
+			return true
+		}
+	}
+	return false
 }
 
 type EpayRequest struct {
@@ -463,4 +476,3 @@ func AdminCompleteTopUp(c *gin.Context) {
 	}
 	common.ApiSuccess(c, nil)
 }
-

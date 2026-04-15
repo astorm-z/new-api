@@ -29,7 +29,7 @@ import {
   Tooltip,
 } from '@douyinfe/semi-ui';
 import { Crown, CalendarClock, Package } from 'lucide-react';
-import { SiStripe } from 'react-icons/si';
+import { SiAlipay, SiStripe } from 'react-icons/si';
 import { IconCreditCard } from '@douyinfe/semi-icons';
 import { renderQuota } from '../../../helpers';
 import { getCurrencyConfig } from '../../../helpers/render';
@@ -50,12 +50,15 @@ const SubscriptionPurchaseModal = ({
   setSelectedEpayMethod,
   epayMethods = [],
   enableOnlineTopUp = false,
+  enableAlipayTopUp = false,
   enableStripeTopUp = false,
   enableCreemTopUp = false,
+  enterpriseAlipayMethod = null,
   purchaseLimitInfo = null,
   onPayStripe,
   onPayCreem,
   onPayEpay,
+  onPayEnterpriseAlipay,
 }) => {
   const plan = selectedPlan?.plan;
   const totalAmount = Number(plan?.total_amount || 0);
@@ -69,7 +72,9 @@ const SubscriptionPurchaseModal = ({
   const hasStripe = enableStripeTopUp && !!plan?.stripe_price_id;
   const hasCreem = enableCreemTopUp && !!plan?.creem_product_id;
   const hasEpay = enableOnlineTopUp && epayMethods.length > 0;
-  const hasAnyPayment = hasStripe || hasCreem || hasEpay;
+  const hasEnterpriseAlipay = enableAlipayTopUp && !!enterpriseAlipayMethod;
+  const hasAnyPayment =
+    hasStripe || hasCreem || hasEpay || hasEnterpriseAlipay;
   const purchaseLimit = Number(purchaseLimitInfo?.limit || 0);
   const purchaseCount = Number(purchaseLimitInfo?.count || 0);
   const purchaseLimitReached =
@@ -185,8 +190,8 @@ const SubscriptionPurchaseModal = ({
                 {t('选择支付方式')}：
               </Text>
 
-              {/* Stripe / Creem */}
-              {(hasStripe || hasCreem) && (
+              {/* Stripe / Creem / 企业支付宝 */}
+              {(hasStripe || hasCreem || hasEnterpriseAlipay) && (
                 <div className='flex gap-2'>
                   {hasStripe && (
                     <Button
@@ -210,6 +215,18 @@ const SubscriptionPurchaseModal = ({
                       disabled={purchaseLimitReached}
                     >
                       Creem
+                    </Button>
+                  )}
+                  {hasEnterpriseAlipay && (
+                    <Button
+                      theme='light'
+                      className='flex-1'
+                      icon={<SiAlipay size={14} color='#1677FF' />}
+                      onClick={onPayEnterpriseAlipay}
+                      loading={paying}
+                      disabled={purchaseLimitReached}
+                    >
+                      {enterpriseAlipayMethod?.name || t('企业支付宝')}
                     </Button>
                   )}
                 </div>
