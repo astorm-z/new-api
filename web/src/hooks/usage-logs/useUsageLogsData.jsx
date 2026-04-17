@@ -695,13 +695,13 @@ export const useLogsData = () => {
           ),
         });
       }
-      if (isAdminUser && logs[i].type !== 6) {
+      if (isAdminUser && logs[i].type !== 6 && logs[i].type !== 1) {
         expandDataLocal.push({
           key: t('请求转换'),
           value: requestConversionDisplayValue(other?.request_conversion),
         });
       }
-      if (isAdminUser && logs[i].type !== 6) {
+      if (isAdminUser && logs[i].type !== 6 && logs[i].type !== 1) {
         let localCountMode = '';
         if (other?.admin_info?.local_count_tokens) {
           localCountMode = t('本地计费');
@@ -712,6 +712,64 @@ export const useLogsData = () => {
           key: t('计费模式'),
           value: localCountMode,
         });
+      }
+      if (isAdminUser && logs[i].type === 1 && other?.admin_info) {
+        const adminInfo = other.admin_info;
+        if (adminInfo.payment_method) {
+          expandDataLocal.push({
+            key: t('订单支付方式'),
+            value: adminInfo.payment_method,
+          });
+        }
+        if (adminInfo.callback_payment_method) {
+          expandDataLocal.push({
+            key: t('回调支付方式'),
+            value: adminInfo.callback_payment_method,
+          });
+        }
+        if (adminInfo.caller_ip) {
+          expandDataLocal.push({
+            key: t('回调调用者IP'),
+            value: adminInfo.caller_ip,
+          });
+        }
+        if (adminInfo.server_ip) {
+          expandDataLocal.push({
+            key: t('服务器IP'),
+            value: adminInfo.server_ip,
+          });
+        }
+        if (adminInfo.version) {
+          expandDataLocal.push({
+            key: t('系统版本'),
+            value: adminInfo.version,
+          });
+        }
+      }
+      if (isAdminUser && logs[i].type === 3 && other?.admin_info) {
+        const adminInfo = other.admin_info;
+        const hasUsername =
+          adminInfo.admin_username !== undefined &&
+          adminInfo.admin_username !== null &&
+          adminInfo.admin_username !== '';
+        const hasId =
+          adminInfo.admin_id !== undefined &&
+          adminInfo.admin_id !== null &&
+          adminInfo.admin_id !== '';
+        if (hasUsername || hasId) {
+          let operatorValue = '';
+          if (hasUsername && hasId) {
+            operatorValue = `${adminInfo.admin_username} (ID: ${adminInfo.admin_id})`;
+          } else if (hasUsername) {
+            operatorValue = String(adminInfo.admin_username);
+          } else {
+            operatorValue = `ID: ${adminInfo.admin_id}`;
+          }
+          expandDataLocal.push({
+            key: t('操作管理员'),
+            value: operatorValue,
+          });
+        }
       }
       expandDatesLocal[logs[i].key] = expandDataLocal;
     }
