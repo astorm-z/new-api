@@ -49,7 +49,6 @@ const PageLayout = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { i18n } = useTranslation();
   const location = useLocation();
-  const isStaticHomeRoute = location.pathname === '/';
 
   const cardProPages = [
     '/console/channel',
@@ -105,13 +104,6 @@ const PageLayout = () => {
   useEffect(() => {
     loadUser();
     loadStatus().catch(console.error);
-  }, []);
-
-  useEffect(() => {
-    if (isStaticHomeRoute) {
-      return;
-    }
-
     let systemName = getSystemName();
     if (systemName) {
       document.title = systemName;
@@ -123,7 +115,7 @@ const PageLayout = () => {
         linkElement.href = logo;
       }
     }
-  }, [isStaticHomeRoute]);
+  }, []);
 
   useEffect(() => {
     let preferredLang;

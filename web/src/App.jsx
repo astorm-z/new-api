@@ -50,6 +50,7 @@ import PersonalSetting from './components/settings/PersonalSetting';
 import Setup from './pages/Setup';
 import SetupCheck from './components/layout/SetupCheck';
 
+const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const About = lazy(() => import('./pages/About'));
 const UserAgreement = lazy(() => import('./pages/UserAgreement'));
@@ -91,7 +92,11 @@ function App() {
       <Routes>
         <Route
           path='/'
-          element={<></>}
+          element={
+            <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+              <Home />
+            </Suspense>
+          }
         />
         <Route
           path='/setup'
