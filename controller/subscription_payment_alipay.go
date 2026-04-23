@@ -40,7 +40,7 @@ func SubscriptionRequestAlipayPay(c *gin.Context) {
 
 	client, err := GetAlipayClient()
 	if err != nil || client == nil {
-		common.ApiErrorMsg(c, "当前管理员未配置企业支付宝支付信息")
+		common.ApiErrorMsg(c, "当前管理员未配置支付宝支付信息")
 		return
 	}
 

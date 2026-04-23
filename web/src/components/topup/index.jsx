@@ -138,7 +138,7 @@ const TopUp = () => {
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
       return 0;
     }
-    return Math.max(1, Math.round(numericAmount * getUsdExchangeRate()));
+    return Math.max(1, Math.round(numericAmount));
   };
 
   const getEffectiveTopupPriceRatio = () => {
@@ -204,7 +204,7 @@ const TopUp = () => {
       }
     } else if (payment === 'enterprise_alipay') {
       if (!enableAlipayTopUp) {
-        showError(t('管理员未开启企业支付宝充值！'));
+        showError(t('管理员未开启支付宝充值！'));
         return;
       }
     } else {

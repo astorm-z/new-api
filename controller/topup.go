@@ -77,7 +77,7 @@ func GetTopUpInfo(c *gin.Context) {
 
 	if enableAlipay && !containsPayMethodType(payMethods, PaymentMethodEnterpriseAlipay) {
 		alipayMethod := map[string]string{
-			"name":      "企业支付宝",
+			"name":      "支付宝",
 			"type":      PaymentMethodEnterpriseAlipay,
 			"color":     "rgba(var(--semi-blue-5), 1)",
 			"min_topup": strconv.Itoa(setting.AlipayMinTopUp),

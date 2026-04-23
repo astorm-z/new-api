@@ -190,7 +190,7 @@ const SubscriptionPurchaseModal = ({
                 {t('选择支付方式')}：
               </Text>
 
-              {/* Stripe / Creem / 企业支付宝 */}
+              {/* Stripe / Creem / 支付宝 */}
               {(hasStripe || hasCreem || hasEnterpriseAlipay) && (
                 <div className='flex gap-2'>
                   {hasStripe && (
@@ -226,7 +226,7 @@ const SubscriptionPurchaseModal = ({
                       loading={paying}
                       disabled={purchaseLimitReached}
                     >
-                      {enterpriseAlipayMethod?.name || t('企业支付宝')}
+                      {enterpriseAlipayMethod?.name || t('支付宝')}
                     </Button>
                   )}
                 </div>

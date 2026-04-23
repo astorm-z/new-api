@@ -166,11 +166,7 @@ const PaymentConfirmModal = ({
                             color='#1677FF'
                           />
                           <Text className='text-slate-900 dark:text-slate-100'>
-                            {t(
-                              payWay === 'enterprise_alipay'
-                                ? '企业支付宝'
-                                : '支付宝',
-                            )}
+                            {t('支付宝')}
                           </Text>
                         </>
                       );

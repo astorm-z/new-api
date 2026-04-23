@@ -34,15 +34,10 @@ func shouldUseAlipayDirectCNYRequest(directCNY bool) bool {
 		operation_setting.USDExchangeRate > 0
 }
 
-func getAlipayMinTopup(directCNY bool) int64 {
+func getAlipayMinTopup(_ bool) int64 {
 	minTopup := setting.AlipayMinTopUp
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
 		minTopup = minTopup * int(common.QuotaPerUnit)
-	} else if shouldUseAlipayDirectCNYRequest(directCNY) {
-		minTopup = int(math.Round(float64(minTopup) * operation_setting.USDExchangeRate))
-		if minTopup < 1 {
-			minTopup = 1
-		}
 	}
 	return int64(minTopup)
 }
@@ -59,7 +54,6 @@ func getAlipayPayMoney(amount int64, group string, directCNY bool) float64 {
 			return 0
 		}
 		dAmount = dAmount.Div(dRate)
-		originalAmount = int64(math.Round(float64(amount) / operation_setting.USDExchangeRate))
 	}
 
 	topupGroupRatio := common.GetTopupGroupRatio(group)
@@ -137,7 +131,7 @@ func RequestAlipayPay(c *gin.Context) {
 
 	client, err := GetAlipayClient()
 	if err != nil || client == nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "当前管理员未配置企业支付宝支付信息"})
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "当前管理员未配置支付宝支付信息"})
 		return
 	}
 
