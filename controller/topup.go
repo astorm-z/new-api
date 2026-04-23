@@ -23,18 +23,24 @@ import (
 )
 
 func GetTopUpInfo(c *gin.Context) {
-	// 获取支付方式
-	payMethods := make([]map[string]string, 0, len(operation_setting.PayMethods))
-	for _, method := range operation_setting.PayMethods {
-		cloned := make(map[string]string, len(method))
-		for key, value := range method {
-			cloned[key] = value
+	enableOnlineTopUp := operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != ""
+	enableStripeTopUp := setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != ""
+	enableAlipay := isAlipayEnabled()
+
+	// 仅在对应渠道实际启用时返回其支付方式，避免前端展示不可用的默认渠道。
+	payMethods := make([]map[string]string, 0, len(operation_setting.PayMethods)+3)
+	if enableOnlineTopUp {
+		for _, method := range operation_setting.PayMethods {
+			cloned := make(map[string]string, len(method))
+			for key, value := range method {
+				cloned[key] = value
+			}
+			payMethods = append(payMethods, cloned)
 		}
-		payMethods = append(payMethods, cloned)
 	}
 
 	// 如果启用了 Stripe 支付，添加到支付方法列表
-	if setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "" {
+	if enableStripeTopUp {
 		// 检查是否已经包含 Stripe
 		if !containsPayMethodType(payMethods, "stripe") {
 			stripeMethod := map[string]string{
@@ -69,7 +75,6 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
-	enableAlipay := isAlipayEnabled()
 	if enableAlipay && !containsPayMethodType(payMethods, PaymentMethodEnterpriseAlipay) {
 		alipayMethod := map[string]string{
 			"name":      "企业支付宝",
@@ -81,9 +86,9 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"enable_online_topup": operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "",
+		"enable_online_topup": enableOnlineTopUp,
 		"enable_alipay_topup": enableAlipay,
-		"enable_stripe_topup": setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "",
+		"enable_stripe_topup": enableStripeTopUp,
 		"enable_creem_topup":  setting.CreemApiKey != "" && setting.CreemProducts != "[]",
 		"enable_waffo_topup": enableWaffo,
 		"waffo_pay_methods": func() interface{} {
