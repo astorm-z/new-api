@@ -103,13 +103,9 @@ const PageLayout = () => {
   };
 
   useEffect(() => {
-    if (isStaticHomeRoute) {
-      return;
-    }
-
     loadUser();
     loadStatus().catch(console.error);
-  }, [isStaticHomeRoute]);
+  }, []);
 
   useEffect(() => {
     if (isStaticHomeRoute) {
@@ -155,16 +151,6 @@ const PageLayout = () => {
       }
     }
   }, [i18n, userState?.user?.setting]);
-
-  if (isStaticHomeRoute) {
-    return (
-      <>
-        <ErrorBoundary>
-          <App />
-        </ErrorBoundary>
-      </>
-    );
-  }
 
   return (
     <Layout
