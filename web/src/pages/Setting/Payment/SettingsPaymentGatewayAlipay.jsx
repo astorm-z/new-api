@@ -189,7 +189,7 @@ export default function SettingsPaymentGatewayAlipay(props) {
             <Col xs={24} sm={24} md={8} lg={8} xl={8}>
               <Form.InputNumber
                 field='AlipayMinTopUp'
-                label={t('最低充值美元数量')}
+                label={t('最低充值数量')}
                 placeholder={t('例如：1')}
                 min={1}
                 precision={0}

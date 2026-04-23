@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -301,10 +302,19 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 
 		// 计算应充值额度：
 		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
+		// - 企业支付宝人民币直充：Amount 为人民币展示金额，需要按汇率换回内部美元额度
 		// - 其他订单（如易支付）：Amount 为美元数量，* QuotaPerUnit
 		if topUp.PaymentMethod == "stripe" {
 			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 			quotaToAdd = int(decimal.NewFromFloat(topUp.Money).Mul(dQuotaPerUnit).IntPart())
+		} else if topUp.PaymentMethod == "enterprise_alipay_cny" {
+			if operation_setting.USDExchangeRate <= 0 {
+				return errors.New("人民币汇率配置错误")
+			}
+			dAmount := decimal.NewFromInt(topUp.Amount)
+			dRate := decimal.NewFromFloat(operation_setting.USDExchangeRate)
+			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+			quotaToAdd = int(dAmount.Div(dRate).Mul(dQuotaPerUnit).IntPart())
 		} else {
 			dAmount := decimal.NewFromInt(topUp.Amount)
 			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
@@ -505,9 +515,22 @@ func RechargeAlipay(tradeNo string) (err error) {
 			return errors.New("充值订单状态错误")
 		}
 
-		dAmount := decimal.NewFromInt(topUp.Amount)
-		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-		quotaToAdd = int(dAmount.Mul(dQuotaPerUnit).IntPart())
+		switch topUp.PaymentMethod {
+		case "enterprise_alipay_cny":
+			if operation_setting.USDExchangeRate <= 0 {
+				return errors.New("人民币汇率配置错误")
+			}
+			dAmount := decimal.NewFromInt(topUp.Amount)
+			dRate := decimal.NewFromFloat(operation_setting.USDExchangeRate)
+			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+			quotaToAdd = int(dAmount.Div(dRate).Mul(dQuotaPerUnit).IntPart())
+		case "enterprise_alipay":
+			dAmount := decimal.NewFromInt(topUp.Amount)
+			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+			quotaToAdd = int(dAmount.Mul(dQuotaPerUnit).IntPart())
+		default:
+			return ErrPaymentMethodMismatch
+		}
 		if quotaToAdd <= 0 {
 			return errors.New("无效的充值额度")
 		}

@@ -59,6 +59,7 @@ const TopUp = () => {
     statusState?.status?.enable_online_topup || false,
   );
   const [enableAlipayTopUp, setEnableAlipayTopUp] = useState(false);
+  const [enableAlipayDirectCNY, setEnableAlipayDirectCNY] = useState(false);
   const [priceRatio, setPriceRatio] = useState(statusState?.status?.price || 1);
 
   const [enableStripeTopUp, setEnableStripeTopUp] = useState(
@@ -113,6 +114,43 @@ const TopUp = () => {
     amount_options: [],
     discount: {},
   });
+
+  const getUsdExchangeRate = () => {
+    const statusRate = Number(statusState?.status?.usd_exchange_rate);
+    if (Number.isFinite(statusRate) && statusRate > 0) {
+      return statusRate;
+    }
+    try {
+      const storedStatus = localStorage.getItem('status');
+      if (storedStatus) {
+        const parsed = JSON.parse(storedStatus);
+        const storedRate = Number(parsed?.usd_exchange_rate);
+        if (Number.isFinite(storedRate) && storedRate > 0) {
+          return storedRate;
+        }
+      }
+    } catch (e) {}
+    return 1;
+  };
+
+  const convertBaseAmountToAlipayDirectCNY = (amount) => {
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return 0;
+    }
+    return Math.max(1, Math.round(numericAmount * getUsdExchangeRate()));
+  };
+
+  const getEffectiveTopupPriceRatio = () => {
+    if (!enableAlipayDirectCNY) {
+      return priceRatio;
+    }
+    const usdExchangeRate = getUsdExchangeRate();
+    if (!Number.isFinite(usdExchangeRate) || usdExchangeRate <= 0) {
+      return priceRatio;
+    }
+    return priceRatio / usdExchangeRate;
+  };
 
   const topUp = async () => {
     if (redemptionCode === '') {
@@ -235,6 +273,7 @@ const TopUp = () => {
         res = await API.post('/api/user/alipay/pay', {
           amount: parseInt(topUpCount),
           payment_method: 'enterprise_alipay',
+          direct_cny: enableAlipayDirectCNY,
         });
       } else {
         // 普通支付请求
@@ -442,6 +481,7 @@ const TopUp = () => {
       const res = await API.get('/api/user/topup/info');
       const { message, data, success } = res.data;
       if (success) {
+        const enableAlipayDirectCNY = data.enable_alipay_direct_cny || false;
         setTopupInfo({
           amount_options: data.amount_options || [],
           discount: data.discount || {},
@@ -465,6 +505,26 @@ const TopUp = () => {
               method.min_topup = Number.isFinite(normalizedMinTopup)
                 ? normalizedMinTopup
                 : 0;
+
+              if (
+                enableAlipayDirectCNY &&
+                method.type === 'enterprise_alipay' &&
+                method.min_topup > 0
+              ) {
+                method.min_topup =
+                  convertBaseAmountToAlipayDirectCNY(method.min_topup);
+              }
+
+              if (
+                method.type === 'enterprise_alipay' &&
+                (!method.min_topup || method.min_topup <= 0)
+              ) {
+                method.min_topup = enableAlipayDirectCNY
+                  ? convertBaseAmountToAlipayDirectCNY(
+                      data.alipay_min_topup || 1,
+                    )
+                  : Number(data.alipay_min_topup) || 1;
+              }
 
               // Stripe 的最小充值从后端字段回填
               if (
@@ -510,7 +570,11 @@ const TopUp = () => {
             candidateMinTopups.push(Number(data.min_topup) || 1);
           }
           if (enableAlipayTopUp) {
-            candidateMinTopups.push(Number(data.alipay_min_topup) || 1);
+            candidateMinTopups.push(
+              enableAlipayDirectCNY
+                ? convertBaseAmountToAlipayDirectCNY(data.alipay_min_topup || 1)
+                : Number(data.alipay_min_topup) || 1,
+            );
           }
           if (enableStripeTopUp) {
             candidateMinTopups.push(Number(data.stripe_min_topup) || 1);
@@ -524,12 +588,17 @@ const TopUp = () => {
               : 1;
           setEnableOnlineTopUp(enableOnlineTopUp);
           setEnableAlipayTopUp(enableAlipayTopUp);
+          setEnableAlipayDirectCNY(enableAlipayDirectCNY);
           setEnableStripeTopUp(enableStripeTopUp);
           setEnableCreemTopUp(enableCreemTopUp);
           setEnableWaffoTopUp(enableWaffoTopUp);
           setWaffoPayMethods(data.waffo_pay_methods || []);
           setWaffoMinTopUp(data.waffo_min_topup || 1);
-          setAlipayMinTopUp(data.alipay_min_topup || 1);
+          setAlipayMinTopUp(
+            enableAlipayDirectCNY
+              ? convertBaseAmountToAlipayDirectCNY(data.alipay_min_topup || 1)
+              : data.alipay_min_topup || 1,
+          );
           setMinTopUp(minTopUpValue);
           setTopUpCount(minTopUpValue);
 
@@ -543,11 +612,22 @@ const TopUp = () => {
 
           // 如果没有自定义充值数量选项，根据最小充值金额生成预设充值额度选项
           if (topupInfo.amount_options.length === 0) {
-            setPresetAmounts(generatePresetAmounts(minTopUpValue));
+            setPresetAmounts(
+              generatePresetAmounts(
+                enableAlipayDirectCNY
+                  ? Number(data.alipay_min_topup) || 1
+                  : minTopUpValue,
+                enableAlipayDirectCNY,
+              ),
+            );
           }
 
           // 初始化显示实付金额
-          getAmount(minTopUpValue);
+          if (enableAlipayDirectCNY) {
+            getAlipayAmount(minTopUpValue, true);
+          } else {
+            getAmount(minTopUpValue);
+          }
         } catch (e) {
           setPayMethods([]);
         }
@@ -555,7 +635,9 @@ const TopUp = () => {
         // 如果有自定义充值数量选项，使用它们替换默认的预设选项
         if (data.amount_options && data.amount_options.length > 0) {
           const customPresets = data.amount_options.map((amount) => ({
-            value: amount,
+            value: enableAlipayDirectCNY
+              ? convertBaseAmountToAlipayDirectCNY(amount)
+              : amount,
             discount: data.discount[amount] || 1.0,
           }));
           setPresetAmounts(customPresets);
@@ -702,7 +784,7 @@ const TopUp = () => {
     }
   };
 
-  const getAlipayAmount = async (value) => {
+  const getAlipayAmount = async (value, directCNY = enableAlipayDirectCNY) => {
     if (value === undefined) {
       value = topUpCount;
     }
@@ -710,6 +792,7 @@ const TopUp = () => {
     try {
       const res = await API.post('/api/user/alipay/amount', {
         amount: parseFloat(value),
+        direct_cny: directCNY,
       });
       if (res !== undefined) {
         const { message, data } = res.data;
@@ -727,6 +810,14 @@ const TopUp = () => {
     } finally {
       setAmountLoading(false);
     }
+  };
+
+  const getTopupPreviewAmount = async (value) => {
+    if (enableAlipayDirectCNY) {
+      await getAlipayAmount(value, true);
+      return;
+    }
+    await getAmount(value);
   };
 
   const getPaymentMinTopUp = (payment) => {
@@ -769,8 +860,16 @@ const TopUp = () => {
 
     // 计算实际支付金额，考虑折扣
     const discount = preset.discount || topupInfo.discount[preset.value] || 1.0;
-    const discountedAmount = preset.value * priceRatio * discount;
+    const discountedAmount =
+      preset.value * getEffectiveTopupPriceRatio() * discount;
     setAmount(discountedAmount);
+  };
+
+  const getCurrentTopupDiscount = () => {
+    const matchedPreset = presetAmounts.find(
+      (preset) => Number(preset.value) === Number(topUpCount),
+    );
+    return matchedPreset?.discount || topupInfo?.discount?.[topUpCount] || 1.0;
   };
 
   // 格式化大数字显示
@@ -779,10 +878,12 @@ const TopUp = () => {
   };
 
   // 根据最小充值金额生成预设充值额度选项
-  const generatePresetAmounts = (minAmount) => {
+  const generatePresetAmounts = (minAmount, convertToAlipayDirectCNY = false) => {
     const multipliers = [1, 5, 10, 30, 50, 100, 300, 500];
     return multipliers.map((multiplier) => ({
-      value: minAmount * multiplier,
+      value: convertToAlipayDirectCNY
+        ? convertBaseAmountToAlipayDirectCNY(minAmount * multiplier)
+        : minAmount * multiplier,
     }));
   };
 
@@ -815,7 +916,7 @@ const TopUp = () => {
         payWay={payWay}
         payMethods={payMethods}
         amountNumber={amount}
-        discountRate={topupInfo?.discount?.[topUpCount] || 1.0}
+        discountRate={getCurrentTopupDiscount()}
       />
 
       {/* 充值账单模态框 */}
@@ -870,11 +971,12 @@ const TopUp = () => {
           selectedPreset={selectedPreset}
           selectPresetAmount={selectPresetAmount}
           formatLargeNumber={formatLargeNumber}
-          priceRatio={priceRatio}
+          priceRatio={getEffectiveTopupPriceRatio()}
+          directCnyTopupMode={enableAlipayDirectCNY}
           topUpCount={topUpCount}
           minTopUp={minTopUp}
           renderQuotaWithAmount={renderQuotaWithAmount}
-          getAmount={getAmount}
+          getAmount={getTopupPreviewAmount}
           setTopUpCount={setTopUpCount}
           setSelectedPreset={setSelectedPreset}
           renderAmount={renderAmount}

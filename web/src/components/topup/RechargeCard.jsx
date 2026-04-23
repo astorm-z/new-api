@@ -65,6 +65,7 @@ const RechargeCard = ({
   selectPresetAmount,
   formatLargeNumber,
   priceRatio,
+  directCnyTopupMode = false,
   topUpCount,
   minTopUp,
   renderQuotaWithAmount,
@@ -375,7 +376,7 @@ const RechargeCard = ({
                       <span>{t('选择充值额度')}</span>
                       {(() => {
                         const { symbol, rate, type } = getCurrencyConfig();
-                        if (type === 'USD') return null;
+                        if (type === 'USD' || directCnyTopupMode) return null;
 
                         return (
                           <span
@@ -417,7 +418,9 @@ const RechargeCard = ({
                       let displayActualPay = actualPay;
                       let displaySave = save;
 
-                      if (type === 'USD') {
+                      if (directCnyTopupMode && type === 'CNY') {
+                        displayValue = preset.value;
+                      } else if (type === 'USD') {
                         // 数量保持USD，价格从CNY转USD
                         displayActualPay = actualPay / usdRate;
                         displaySave = save / usdRate;

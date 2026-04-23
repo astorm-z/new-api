@@ -20,16 +20,17 @@ import (
 )
 
 const (
-	PaymentMethodEnterpriseAlipay = "enterprise_alipay"
-	alipayCharset                 = "utf-8"
-	alipaySignType                = "RSA2"
-	alipayVersion                 = "1.0"
-	alipayMethodPagePay           = "alipay.trade.page.pay"
-	alipayGatewayURL              = "https://openapi.alipay.com/gateway.do"
-	alipayProductCodePagePay      = "FAST_INSTANT_TRADE_PAY"
-	alipayTradeStatusSuccess      = "TRADE_SUCCESS"
-	alipayTradeStatusFinished     = "TRADE_FINISHED"
-	alipayTradeStatusClosed       = "TRADE_CLOSED"
+	PaymentMethodEnterpriseAlipay    = "enterprise_alipay"
+	PaymentMethodEnterpriseAlipayCNY = "enterprise_alipay_cny"
+	alipayCharset                    = "utf-8"
+	alipaySignType                   = "RSA2"
+	alipayVersion                    = "1.0"
+	alipayMethodPagePay              = "alipay.trade.page.pay"
+	alipayGatewayURL                 = "https://openapi.alipay.com/gateway.do"
+	alipayProductCodePagePay         = "FAST_INSTANT_TRADE_PAY"
+	alipayTradeStatusSuccess         = "TRADE_SUCCESS"
+	alipayTradeStatusFinished        = "TRADE_FINISHED"
+	alipayTradeStatusClosed          = "TRADE_CLOSED"
 )
 
 type alipayClient struct {

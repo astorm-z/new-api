@@ -86,10 +86,11 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"enable_online_topup": enableOnlineTopUp,
-		"enable_alipay_topup": enableAlipay,
-		"enable_stripe_topup": enableStripeTopUp,
-		"enable_creem_topup":  setting.CreemApiKey != "" && setting.CreemProducts != "[]",
+		"enable_online_topup":     enableOnlineTopUp,
+		"enable_alipay_topup":     enableAlipay,
+		"enable_alipay_direct_cny": shouldUseAlipayDirectCNYMode(enableAlipay, enableOnlineTopUp, enableStripeTopUp, enableWaffo),
+		"enable_stripe_topup":     enableStripeTopUp,
+		"enable_creem_topup":      setting.CreemApiKey != "" && setting.CreemProducts != "[]",
 		"enable_waffo_topup": enableWaffo,
 		"waffo_pay_methods": func() interface{} {
 			if enableWaffo {
@@ -116,6 +117,15 @@ func containsPayMethodType(payMethods []map[string]string, payMethodType string)
 		}
 	}
 	return false
+}
+
+func shouldUseAlipayDirectCNYMode(enableAlipay, enableOnlineTopUp, enableStripeTopUp, enableWaffo bool) bool {
+	return enableAlipay &&
+		!enableOnlineTopUp &&
+		!enableStripeTopUp &&
+		!enableWaffo &&
+		operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeCNY &&
+		operation_setting.USDExchangeRate > 0
 }
 
 type EpayRequest struct {
