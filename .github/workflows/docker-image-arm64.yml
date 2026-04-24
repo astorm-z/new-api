@@ -1,4 +1,4 @@
-name: Publish Docker image (Multi Registries, native amd64+arm64)
+name: Publish Docker image (Docker Hub, amd64)
 
 on:
   push:
@@ -13,19 +13,9 @@ on:
         type: string
 
 jobs:
-  build_single_arch:
-    name: Build & push (${{ matrix.arch }}) [native]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            platform: linux/amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            platform: linux/arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+  build_and_push:
+    name: Build & push amd64
+    runs-on: ubuntu-latest
 
     permissions:
       packages: write
@@ -53,7 +43,7 @@ jobs:
           fi
           echo "TAG=$TAG" >> $GITHUB_ENV
           echo "$TAG" > VERSION
-          echo "Building tag: $TAG for ${{ matrix.arch }}"
+          echo "Building tag: $TAG for amd64"
 
 
 #      - name: Normalize GHCR repository
@@ -83,18 +73,18 @@ jobs:
             calciumion/new-api
 #            ghcr.io/${{ env.GHCR_REPOSITORY }}
 
-      - name: Build & push single-arch (to both registries)
+      - name: Build & push image
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64
           push: true
           tags: |
-            calciumion/new-api:${{ env.TAG }}-${{ matrix.arch }}
-            calciumion/new-api:latest-${{ matrix.arch }}
-#            ghcr.io/${{ env.GHCR_REPOSITORY }}:${{ env.TAG }}-${{ matrix.arch }}
-#            ghcr.io/${{ env.GHCR_REPOSITORY }}:latest-${{ matrix.arch }}
+            calciumion/new-api:${{ env.TAG }}
+            calciumion/new-api:latest
+#            ghcr.io/${{ env.GHCR_REPOSITORY }}:${{ env.TAG }}
+#            ghcr.io/${{ env.GHCR_REPOSITORY }}:latest
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -109,74 +99,8 @@ jobs:
 
       - name: Output digest
         run: |
-          echo "### Docker Image Digest (${{ matrix.arch }})" >> $GITHUB_STEP_SUMMARY
+          echo "### Docker Image Digest (amd64)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "calciumion/new-api:${{ env.TAG }}-${{ matrix.arch }}" >> $GITHUB_STEP_SUMMARY
+          echo "calciumion/new-api:${{ env.TAG }}" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-
-  create_manifests:
-    name: Create multi-arch manifests (Docker Hub)
-    needs: [build_single_arch]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Extract tag
-        run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "TAG=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
-          else
-            echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
-          fi
-#
-#      - name: Normalize GHCR repository
-#        run: echo "GHCR_REPOSITORY=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Create & push manifest (Docker Hub - version)
-        run: |
-          docker buildx imagetools create \
-            -t calciumion/new-api:${TAG} \
-            calciumion/new-api:${TAG}-amd64 \
-            calciumion/new-api:${TAG}-arm64
-
-      - name: Create & push manifest (Docker Hub - latest)
-        run: |
-          docker buildx imagetools create \
-            -t calciumion/new-api:latest \
-            calciumion/new-api:latest-amd64 \
-            calciumion/new-api:latest-arm64
-
-      - name: Output manifest digest
-        run: |
-          echo "### Multi-arch Manifest" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          docker buildx imagetools inspect calciumion/new-api:${TAG} >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-      # ---- GHCR ----
-#      - name: Log in to GHCR
-#        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-#        with:
-#          registry: ghcr.io
-#          username: ${{ github.actor }}
-#          password: ${{ secrets.GITHUB_TOKEN }}
-
-#      - name: Create & push manifest (GHCR - version)
-#        run: |
-#          docker buildx imagetools create \
-#            -t ghcr.io/${GHCR_REPOSITORY}:${TAG} \
-#            ghcr.io/${GHCR_REPOSITORY}:${TAG}-amd64 \
-#            ghcr.io/${GHCR_REPOSITORY}:${TAG}-arm64
-#
-#      - name: Create & push manifest (GHCR - latest)
-#        run: |
-#          docker buildx imagetools create \
-#            -t ghcr.io/${GHCR_REPOSITORY}:latest \
-#            ghcr.io/${GHCR_REPOSITORY}:latest-amd64 \
-#            ghcr.io/${GHCR_REPOSITORY}:latest-arm64
