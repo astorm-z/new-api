@@ -1273,7 +1273,12 @@ const ImageGeneration = () => {
       <div className='flex-1 overflow-y-auto pr-1'>
         {submitting ? (
           <div className='flex h-full min-h-[360px] items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50'>
-            <Spin size='large' tip={t('正在生成图片')} />
+            <div className='flex flex-col items-center gap-3 text-center'>
+              <Spin size='large' />
+              <Typography.Text className='whitespace-nowrap text-semi-color-primary'>
+                {t('正在生成图片')}
+              </Typography.Text>
+            </div>
           </div>
         ) : submitError ? (
           <Empty
