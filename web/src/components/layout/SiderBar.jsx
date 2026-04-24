@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { getLucideIcon } from '../../helpers/render';
@@ -26,6 +26,7 @@ import { useSidebarCollapsed } from '../../hooks/common/useSidebarCollapsed';
 import { useSidebar } from '../../hooks/common/useSidebar';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
 import { isAdmin, isRoot, showError } from '../../helpers';
+import { StatusContext } from '../../context/Status';
 import SkeletonWrapper from './components/SkeletonWrapper';
 
 import { Nav, Divider, Button } from '@douyinfe/semi-ui';
@@ -48,17 +49,23 @@ const routerMap = {
   models: '/console/models',
   deployment: '/console/deployment',
   playground: '/console/playground',
+  image_generation: '/console/image-generation',
   personal: '/console/personal',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
   const { t } = useTranslation();
+  const [statusState] = useContext(StatusContext);
   const [collapsed, toggleCollapsed] = useSidebarCollapsed();
   const {
     isModuleVisible,
     hasSectionVisibleModules,
     loading: sidebarLoading,
   } = useSidebar();
+  const drawingEnabled =
+    typeof statusState?.status?.enable_drawing === 'boolean'
+      ? statusState.status.enable_drawing
+      : localStorage.getItem('enable_drawing') === 'true';
 
   const showSkeleton = useMinimumLoadingTime(sidebarLoading, 200);
 
@@ -93,10 +100,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('绘图日志'),
         itemKey: 'midjourney',
         to: '/midjourney',
-        className:
-          localStorage.getItem('enable_drawing') === 'true'
-            ? ''
-            : 'tableHiddle',
+        className: drawingEnabled ? '' : 'tableHiddle',
       },
       {
         text: t('任务日志'),
@@ -116,8 +120,8 @@ const SiderBar = ({ onNavigate = () => {} }) => {
     return filteredItems;
   }, [
     localStorage.getItem('enable_data_export'),
-    localStorage.getItem('enable_drawing'),
     localStorage.getItem('enable_task'),
+    drawingEnabled,
     t,
     isModuleVisible,
   ]);
@@ -208,6 +212,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         to: '/playground',
       },
       {
+        text: t('AI生图'),
+        itemKey: 'image_generation',
+        to: '/image-generation',
+        className: drawingEnabled ? '' : 'tableHiddle',
+      },
+      {
         text: t('聊天'),
         itemKey: 'chat',
         items: chatItems,
@@ -221,7 +231,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
     });
 
     return filteredItems;
-  }, [chatItems, t, isModuleVisible]);
+  }, [chatItems, drawingEnabled, t, isModuleVisible]);
 
   // 更新路由映射，添加聊天路由
   const updateRouterMapWithChats = (chats) => {

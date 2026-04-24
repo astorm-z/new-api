@@ -49,6 +49,22 @@ import {
   useSidebar,
 } from '../../../../hooks/common/useSidebar';
 
+const mergeUserSidebarConfig = (userConfig, adminConfig) => {
+  const merged = {};
+  Object.keys(adminConfig || {}).forEach((sectionKey) => {
+    const adminSection = adminConfig[sectionKey] || {};
+    const userSection = userConfig?.[sectionKey] || {};
+    merged[sectionKey] = { enabled: userSection.enabled !== false };
+    Object.keys(adminSection).forEach((moduleKey) => {
+      if (moduleKey === 'enabled') return;
+      if (adminSection[moduleKey]) {
+        merged[sectionKey][moduleKey] = userSection[moduleKey] !== false;
+      }
+    });
+  });
+  return merged;
+};
+
 const NotificationSettings = ({
   t,
   notificationSettings,
@@ -67,6 +83,7 @@ const NotificationSettings = ({
     chat: {
       enabled: true,
       playground: true,
+      image_generation: true,
       chat: true,
     },
     console: {
@@ -156,7 +173,12 @@ const NotificationSettings = ({
 
   const resetSidebarModules = () => {
     const defaultConfig = {
-      chat: { enabled: true, playground: true, chat: true },
+      chat: {
+        enabled: true,
+        playground: true,
+        image_generation: true,
+        chat: true,
+      },
       console: {
         enabled: true,
         detail: true,
@@ -184,19 +206,19 @@ const NotificationSettings = ({
   useEffect(() => {
     const loadSidebarConfigs = async () => {
       try {
+        let mergedAdminConfig = mergeAdminConfig(null);
         // 获取管理员全局配置
         if (statusState?.status?.SidebarModulesAdmin) {
           try {
             const adminConf = JSON.parse(
               statusState.status.SidebarModulesAdmin,
             );
-            setAdminConfig(mergeAdminConfig(adminConf));
+            mergedAdminConfig = mergeAdminConfig(adminConf);
           } catch (error) {
-            setAdminConfig(mergeAdminConfig(null));
+            mergedAdminConfig = mergeAdminConfig(null);
           }
-        } else {
-          setAdminConfig(mergeAdminConfig(null));
         }
+        setAdminConfig(mergedAdminConfig);
 
         // 获取用户个人配置
         const userRes = await API.get('/api/user/self');
@@ -207,7 +229,9 @@ const NotificationSettings = ({
           } else {
             userConf = userRes.data.data.sidebar_modules;
           }
-          setSidebarModulesUser(userConf);
+          setSidebarModulesUser(
+            mergeUserSidebarConfig(userConf, mergedAdminConfig),
+          );
         }
       } catch (error) {
         console.error('加载边栏配置失败:', error);
@@ -253,6 +277,11 @@ const NotificationSettings = ({
           key: 'playground',
           title: t('操练场'),
           description: t('AI模型测试环境'),
+        },
+        {
+          key: 'image_generation',
+          title: t('AI生图'),
+          description: t('AI图片生成工具'),
         },
         { key: 'chat', title: t('聊天'), description: t('聊天会话管理') },
       ],
