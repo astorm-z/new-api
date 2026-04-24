@@ -103,6 +103,12 @@ const OUTPUT_FORMAT_OPTIONS = [
   { label: 'webp', value: 'webp' },
 ];
 
+const normalizeOptionalInteger = (value) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 const MASK_TOOLS = [
   { key: 'brush', label: '笔刷', icon: Brush },
   { key: 'circle', label: '圆形', icon: Circle },
@@ -223,6 +229,15 @@ const formatQuota = (token) => {
   return '额度未知';
 };
 
+const maskTokenKey = (key) => {
+  const value = String(key || '').trim();
+  if (!value) return '******';
+  return `${value.slice(0, 3)}****${value.slice(-3)}`;
+};
+
+const formatTokenOptionLabel = (token) =>
+  `${token.name || `#${token.id}`}(${maskTokenKey(token.key)})`;
+
 const buildHistoryEntry = (form, images) => ({
   id: `${Date.now()}-${form.mode}-${images.length}`,
   version: 1,
@@ -276,7 +291,15 @@ const ImageGeneration = () => {
   const [statusState] = useContext(StatusContext);
   const drawingEnabled = isDrawingEnabledFromStatus(statusState?.status);
 
-  const savedForm = useMemo(() => safeReadJson(FORM_STORAGE_KEY, {}), []);
+  const savedForm = useMemo(() => {
+    const form = safeReadJson(FORM_STORAGE_KEY, {});
+    return {
+      ...form,
+      count: normalizeOptionalInteger(form.count) ?? DEFAULT_FORM.count,
+      outputCompression: normalizeOptionalInteger(form.outputCompression),
+      partialImages: normalizeOptionalInteger(form.partialImages),
+    };
+  }, []);
   const [form, setForm] = useState({ ...DEFAULT_FORM, ...savedForm });
   const [tokens, setTokens] = useState([]);
   const [models, setModels] = useState([]);
@@ -319,7 +342,7 @@ const ImageGeneration = () => {
   const tokenOptions = useMemo(
     () =>
       tokens.map((token) => ({
-        label: `${token.name || `#${token.id}`} · ${token.key || '******'}`,
+        label: formatTokenOptionLabel(token),
         value: String(token.id),
       })),
     [tokens],
@@ -733,7 +756,7 @@ const ImageGeneration = () => {
       model: form.model,
       prompt: form.prompt.trim(),
       response_format: 'url',
-      stream: false,
+      stream: true,
     };
     appendCommonPayloadFields(payload);
     return payload;
@@ -744,7 +767,7 @@ const ImageGeneration = () => {
     formData.append('model', form.model);
     formData.append('prompt', form.prompt.trim());
     formData.append('response_format', 'url');
-    formData.append('stream', 'false');
+    formData.append('stream', 'true');
     formData.append('n', String(form.count));
     if (form.size) formData.append('size', form.size);
     if (form.quality) formData.append('quality', form.quality);
@@ -1127,7 +1150,7 @@ const ImageGeneration = () => {
           />
           {selectedToken && (
             <div className='mt-2 rounded-xl bg-gray-50 p-3 text-xs text-gray-500'>
-              <div>{selectedToken.name || `#${selectedToken.id}`}</div>
+              <div>{formatTokenOptionLabel(selectedToken)}</div>
               <div>{formatQuota(selectedToken)}</div>
               {selectedToken.group && <div>{`${t('分组')}: ${selectedToken.group}`}</div>}
             </div>
@@ -1183,8 +1206,9 @@ const ImageGeneration = () => {
             <InputNumber
               min={1}
               max={10}
+              step={1}
               value={form.count}
-              onChange={(value) => updateForm({ count: Number(value) || 1 })}
+              onChange={(value) => updateForm({ count: normalizeOptionalInteger(value) ?? DEFAULT_FORM.count })}
               style={{ width: '100%' }}
               disabled={!drawingEnabled}
             />
@@ -1219,11 +1243,11 @@ const ImageGeneration = () => {
             </div>
             <div>
               <Typography.Text strong className='mb-2 block'>{t('输出压缩')}</Typography.Text>
-              <InputNumber min={0} max={100} value={form.outputCompression} onChange={(value) => updateForm({ outputCompression: value === null ? undefined : Number(value) })} style={{ width: '100%' }} disabled={!drawingEnabled} />
+              <InputNumber min={0} max={100} step={1} placeholder='0-100' value={form.outputCompression} onChange={(value) => updateForm({ outputCompression: normalizeOptionalInteger(value) })} style={{ width: '100%' }} disabled={!drawingEnabled} />
             </div>
             <div>
               <Typography.Text strong className='mb-2 block'>{t('局部预览数')}</Typography.Text>
-              <InputNumber min={0} value={form.partialImages} onChange={(value) => updateForm({ partialImages: value === null ? undefined : Number(value) })} style={{ width: '100%' }} disabled={!drawingEnabled} />
+              <InputNumber min={0} step={1} placeholder='例如 2' value={form.partialImages} onChange={(value) => updateForm({ partialImages: normalizeOptionalInteger(value) })} style={{ width: '100%' }} disabled={!drawingEnabled} />
             </div>
           </div>
         </details>
