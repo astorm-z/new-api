@@ -91,9 +91,9 @@ const QUALITY_OPTIONS = [
 
 const BACKGROUND_OPTIONS = [
   { label: '默认', value: '' },
-  { label: 'transparent', value: 'transparent' },
-  { label: 'opaque', value: 'opaque' },
-  { label: 'auto', value: 'auto' },
+  { label: '透明', value: 'transparent' },
+  { label: '不透明', value: 'opaque' },
+  { label: '自动', value: 'auto' },
 ];
 
 const OUTPUT_FORMAT_OPTIONS = [
