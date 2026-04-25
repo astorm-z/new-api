@@ -910,15 +910,6 @@ const ImageGeneration = () => {
     return false;
   }, [maskReady]);
 
-  const previewGeneratedMask = useCallback(() => {
-    if (!maskReady) {
-      Toast.warning(t('请先上传源图'));
-      return;
-    }
-    const maskCanvas = buildMaskCanvas();
-    setPreviewImage({ url: maskCanvas.toDataURL('image/png'), title: t('遮罩预览（透明区域会被修改）') });
-  }, [buildMaskCanvas, maskReady, t]);
-
   const createMaskFile = useCallback(
     () =>
       new Promise((resolve, reject) => {
@@ -1244,108 +1235,113 @@ const ImageGeneration = () => {
 
   const renderMaskEditor = () => {
     if (form.mode !== MODE_MASK) return null;
-    const editor = (
-      <div className='space-y-3'>
-        <div className='flex items-start justify-between gap-3'>
-          <div>
-            <Typography.Text strong>{t('遮罩编辑器')}</Typography.Text>
-            <div className='mt-1 text-xs text-gray-500'>
-              {t('红色标记表示要修改的区域，提交时会自动生成透明编辑区域的 PNG mask。')}
-            </div>
-          </div>
-          {maskExpanded && (
-            <Button
-              icon={<X size={16} />}
-              onClick={() => setMaskExpanded(false)}
-              theme='borderless'
-              type='tertiary'
-              size='small'
-            />
-          )}
-        </div>
-        <div className='flex flex-wrap gap-2'>
-          {MASK_TOOLS.map((tool) => {
-            const Icon = tool.icon;
-            return (
-              <Button
-                key={tool.key}
-                size='small'
-                theme={maskTool === tool.key ? 'solid' : 'light'}
-                type={maskTool === tool.key ? 'primary' : 'tertiary'}
-                icon={<Icon size={14} />}
-                onClick={() => setMaskTool(tool.key)}
-              >
-                {t(tool.label)}
-              </Button>
-            );
-          })}
-        </div>
-        <div className='flex items-center gap-3'>
-          <input
-            type='range'
-            min='4'
-            max='180'
-            step='2'
-            value={brushSize}
-            onChange={(event) => setBrushSize(Number(event.target.value))}
-            className='flex-1'
-          />
-          <Tag color='blue'>{brushSize}px</Tag>
-        </div>
-        <div className='flex flex-wrap gap-2'>
-          <Button size='small' theme='light' icon={<Undo2 size={14} />} onClick={undoMaskAction} disabled={!maskReady}>
-            {t('撤销')}
-          </Button>
-          <Button size='small' theme='light' icon={<Trash2 size={14} />} onClick={clearMaskCanvas} disabled={!maskReady}>
-            {t('清空遮罩')}
-          </Button>
-          <Button size='small' theme='light' icon={<Eye size={14} />} onClick={previewGeneratedMask} disabled={!maskReady}>
-            {t('预览遮罩')}
-          </Button>
-          <Button size='small' type='primary' theme='light' icon={<Maximize2 size={14} />} onClick={() => setMaskExpanded(true)} disabled={!maskReady}>
-            {t('放大编辑')}
-          </Button>
-        </div>
-        <div
-          className={`relative overflow-hidden rounded-2xl border border-dashed border-gray-300 bg-gray-50 ${
-            maskExpanded ? 'mx-auto max-h-[52vh] max-w-[720px] overflow-auto' : ''
-          }`}
-        >
-          {!maskReady && (
-            <div className='flex aspect-square items-center justify-center px-4 text-center text-sm text-gray-500'>
-              {t('上传一张源图后开始绘制遮罩')}
-            </div>
-          )}
-          <div className={maskReady ? 'relative' : 'hidden'}>
-            <canvas ref={maskBaseCanvasRef} className='block h-auto w-full select-none' />
-            <canvas
-              ref={maskPaintCanvasRef}
-              className='absolute inset-0 h-full w-full touch-none select-none opacity-70'
-              onPointerDown={handleMaskPointerDown}
-              onPointerMove={handleMaskPointerMove}
-              onPointerUp={handleMaskPointerUp}
-              onPointerCancel={handleMaskPointerUp}
-            />
-          </div>
-        </div>
-      </div>
-    );
-
-    if (!maskExpanded) return editor;
-
     return (
-      <div
-        className='fixed inset-0 z-[1100] flex items-center justify-center bg-black/45 p-4'
-        onClick={() => setMaskExpanded(false)}
-      >
+      <>
         <div
-          className='max-h-[calc(100vh-96px)] w-[min(920px,calc(100vw-32px))] overflow-auto rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl'
-          style={{ backgroundColor: 'var(--semi-color-bg-0, #fff)' }}
-          onClick={(event) => event.stopPropagation()}
+          className={`space-y-3 ${
+            maskExpanded
+              ? 'fixed left-1/2 top-1/2 z-[1100] overflow-auto rounded-2xl border border-gray-200 p-5 shadow-2xl'
+              : ''
+          }`}
+          style={
+            maskExpanded
+              ? {
+                  width: 'min(1080px, calc(100vw - 48px))',
+                  maxHeight: 'calc(100vh - 72px)',
+                  backgroundColor: 'var(--semi-color-bg-0, #fff)',
+                  transform: 'translate(-50%, -50%)',
+                }
+              : undefined
+          }
         >
-          {editor}
+          <div className='flex items-start justify-between gap-3'>
+            <div>
+              <Typography.Text strong>{t('遮罩编辑器')}</Typography.Text>
+              <div className='mt-1 text-xs text-gray-500'>
+                {t('红色标记表示要修改的区域，提交时会自动生成透明编辑区域的 PNG mask。')}
+              </div>
+            </div>
+            {maskExpanded && (
+              <Button
+                icon={<X size={16} />}
+                onClick={() => setMaskExpanded(false)}
+                theme='borderless'
+                type='tertiary'
+                size='small'
+              />
+            )}
+          </div>
+          <div className='flex flex-wrap gap-2'>
+            {MASK_TOOLS.map((tool) => {
+              const Icon = tool.icon;
+              return (
+                <Button
+                  key={tool.key}
+                  size='small'
+                  theme={maskTool === tool.key ? 'solid' : 'light'}
+                  type={maskTool === tool.key ? 'primary' : 'tertiary'}
+                  icon={<Icon size={14} />}
+                  onClick={() => setMaskTool(tool.key)}
+                >
+                  {t(tool.label)}
+                </Button>
+              );
+            })}
+          </div>
+          <div className='flex items-center gap-3'>
+            <input
+              type='range'
+              min='4'
+              max='180'
+              step='2'
+              value={brushSize}
+              onChange={(event) => setBrushSize(Number(event.target.value))}
+              className='flex-1'
+            />
+            <Tag color='blue'>{brushSize}px</Tag>
+          </div>
+          <div className='flex flex-wrap gap-2'>
+            <Button size='small' theme='light' icon={<Undo2 size={14} />} onClick={undoMaskAction} disabled={!maskReady}>
+              {t('撤销')}
+            </Button>
+            <Button size='small' theme='light' icon={<Trash2 size={14} />} onClick={clearMaskCanvas} disabled={!maskReady}>
+              {t('清空遮罩')}
+            </Button>
+            <Button size='small' type='primary' theme='light' icon={<Maximize2 size={14} />} onClick={() => setMaskExpanded(true)} disabled={!maskReady}>
+              {t('放大编辑')}
+            </Button>
+          </div>
+          <div
+            className={`relative overflow-hidden rounded-2xl border border-dashed border-gray-300 bg-gray-50 ${
+              maskExpanded ? 'mx-auto max-h-[68vh] max-w-[900px] overflow-auto' : ''
+            }`}
+          >
+            {!maskReady && (
+              <div className='flex aspect-square items-center justify-center px-4 text-center text-sm text-gray-500'>
+                {t('上传一张源图后开始绘制遮罩')}
+              </div>
+            )}
+            <div className={maskReady ? 'relative' : 'hidden'}>
+              <canvas ref={maskBaseCanvasRef} className='block h-auto w-full select-none' />
+              <canvas
+                ref={maskPaintCanvasRef}
+                className='absolute inset-0 h-full w-full touch-none select-none opacity-70'
+                onPointerDown={handleMaskPointerDown}
+                onPointerMove={handleMaskPointerMove}
+                onPointerUp={handleMaskPointerUp}
+                onPointerCancel={handleMaskPointerUp}
+              />
+            </div>
+          </div>
         </div>
-      </div>
+        {maskExpanded && (
+          <div
+            className='fixed inset-0 z-[1099]'
+            style={{ backgroundColor: 'rgba(15, 23, 42, 0.45)' }}
+            onClick={() => setMaskExpanded(false)}
+          />
+        )}
+      </>
     );
   };
 
