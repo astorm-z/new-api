@@ -122,18 +122,6 @@ const isDrawingEnabledFromStatus = (status) => {
   return localStorage.getItem('enable_drawing') === 'true';
 };
 
-const getModeLabel = (mode) => {
-  switch (mode) {
-    case MODE_EDIT:
-      return '图生图';
-    case MODE_MASK:
-      return '图生图（遮罩）';
-    case MODE_GENERATE:
-    default:
-      return '文生图';
-  }
-};
-
 const normalizeKey = (key) => {
   if (!key) return '';
   return key.startsWith('sk-') ? key : `sk-${key}`;
@@ -432,36 +420,59 @@ const maskTokenKey = (key) => {
 const formatTokenOptionLabel = (token) =>
   `${token.name || `#${token.id}`}(${maskTokenKey(token.key)})`;
 
+const sanitizeHistoryImages = (images) =>
+  (Array.isArray(images) ? images : [])
+    .filter((image) => image && typeof image.url === 'string' && !image.isPartial)
+    .map(({ isPartial: _isPartial, streamIndex: _streamIndex, ...image }) => image);
+
 const buildHistoryEntry = (form, images) => {
-  const historyForm = omitPartialImages(form);
+  const results = sanitizeHistoryImages(images);
   return {
-    id: `${Date.now()}-${form.mode}-${images.length}`,
-    version: 1,
+    id: `${Date.now()}-${results.length}`,
+    version: 2,
     savedAt: new Date().toISOString(),
-    form: {
-      ...historyForm,
-      tokenId: undefined,
-    },
-    results: images,
+    prompt: typeof form.prompt === 'string' ? form.prompt : '',
+    results,
   };
 };
 
-const isValidHistoryEntry = (entry) =>
-  Boolean(
-    entry &&
-      entry.version === 1 &&
-      typeof entry.id === 'string' &&
-      typeof entry.savedAt === 'string' &&
-      entry.form &&
-      Array.isArray(entry.results) &&
-      entry.results.every((image) => image && typeof image.url === 'string'),
-  );
+const normalizeHistoryEntry = (entry) => {
+  if (!entry || typeof entry.id !== 'string' || typeof entry.savedAt !== 'string') {
+    return null;
+  }
+
+  const results = sanitizeHistoryImages(entry.results);
+  if (results.length === 0) return null;
+
+  if (entry.version === 2) {
+    return {
+      id: entry.id,
+      version: 2,
+      savedAt: entry.savedAt,
+      prompt: typeof entry.prompt === 'string' ? entry.prompt : '',
+      results,
+    };
+  }
+
+  if (entry.version === 1 && entry.form) {
+    return {
+      id: entry.id,
+      version: 2,
+      savedAt: entry.savedAt,
+      prompt: typeof entry.form.prompt === 'string' ? entry.form.prompt : '',
+      results,
+    };
+  }
+
+  return null;
+};
 
 const readHistory = () => {
   const entries = safeReadJson(HISTORY_STORAGE_KEY, []);
   if (!Array.isArray(entries)) return [];
   return entries
-    .filter(isValidHistoryEntry)
+    .map(normalizeHistoryEntry)
+    .filter(Boolean)
     .sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt))
     .slice(0, HISTORY_LIMIT);
 };
@@ -615,6 +626,17 @@ const ImageGeneration = () => {
       resetMaskCanvas();
     }
   }, [form.mode, sourceFiles, loadMaskEditorImage, resetMaskCanvas]);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(HISTORY_STORAGE_KEY)) {
+        const entries = readHistory();
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(entries));
+        setHistoryEntries(entries);
+      }
+    } catch {
+    }
+  }, []);
 
   useEffect(() => {
     const formToSave = omitPartialImages(form);
@@ -1062,11 +1084,11 @@ const ImageGeneration = () => {
           setResultImages(streamImages);
         },
       );
-      if (images.length === 0) {
+      const entry = buildHistoryEntry(form, images);
+      if (entry.results.length === 0) {
         throw new Error(t('接口成功返回，但没有可展示的图片'));
       }
-      setResultImages(images);
-      const entry = buildHistoryEntry(form, images);
+      setResultImages(entry.results);
       const saved = saveHistoryEntry(entry);
       setActiveHistoryId(entry.id);
       Toast.success(saved ? t('生成成功，已保存到历史记录') : t('生成成功，但历史保存失败'));
@@ -1086,21 +1108,16 @@ const ImageGeneration = () => {
 
   const restoreHistoryEntry = useCallback(
     (entry) => {
-      const entryForm = omitPartialImages(entry.form || {});
-      const nextModel =
-        SUPPORTED_IMAGE_MODELS.includes(entryForm.model) &&
-        availableModelValues.includes(entryForm.model)
-          ? entryForm.model
-          : getBestModel(availableModelValues);
-      setForm((prev) => ({ ...prev, ...entryForm, tokenId: prev.tokenId, model: nextModel }));
-      setResultImages(entry.results);
+      const results = sanitizeHistoryImages(entry.results);
+      setForm((prev) => ({ ...prev, prompt: entry.prompt || '' }));
+      setResultImages(results);
       setSubmitError('');
       setActiveHistoryId(entry.id);
       setRestoredFromHistory(true);
       clearSourceFiles();
       Toast.success(t('已恢复历史记录'));
     },
-    [availableModelValues, clearSourceFiles, t],
+    [clearSourceFiles, t],
   );
 
   const clearHistory = useCallback(() => {
@@ -1228,13 +1245,7 @@ const ImageGeneration = () => {
   const renderMaskEditor = () => {
     if (form.mode !== MODE_MASK) return null;
     const editor = (
-      <div
-        className={`space-y-3 ${
-          maskExpanded
-            ? 'fixed inset-4 z-[1100] overflow-auto rounded-3xl bg-white p-5 shadow-2xl'
-            : ''
-        }`}
-      >
+      <div className='space-y-3'>
         <div className='flex items-start justify-between gap-3'>
           <div>
             <Typography.Text strong>{t('遮罩编辑器')}</Typography.Text>
@@ -1297,7 +1308,7 @@ const ImageGeneration = () => {
         </div>
         <div
           className={`relative overflow-hidden rounded-2xl border border-dashed border-gray-300 bg-gray-50 ${
-            maskExpanded ? 'mx-auto max-w-[min(100%,calc((100vh-240px)*1.6))]' : ''
+            maskExpanded ? 'mx-auto max-h-[52vh] max-w-[720px] overflow-auto' : ''
           }`}
         >
           {!maskReady && (
@@ -1320,7 +1331,22 @@ const ImageGeneration = () => {
       </div>
     );
 
-    return editor;
+    if (!maskExpanded) return editor;
+
+    return (
+      <div
+        className='fixed inset-0 z-[1100] flex items-center justify-center bg-black/45 p-4'
+        onClick={() => setMaskExpanded(false)}
+      >
+        <div
+          className='max-h-[calc(100vh-96px)] w-[min(920px,calc(100vw-32px))] overflow-auto rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl'
+          style={{ backgroundColor: 'var(--semi-color-bg-0, #fff)' }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {editor}
+        </div>
+      </div>
+    );
   };
 
   const renderSettingsPanel = () => (
@@ -1383,12 +1409,6 @@ const ImageGeneration = () => {
         </div>
 
         {renderSourceUploader()}
-        {maskExpanded && (
-          <div
-            className='fixed inset-0 z-[1099] bg-black/40'
-            onClick={() => setMaskExpanded(false)}
-          />
-        )}
         {renderMaskEditor()}
 
         <div>
@@ -1626,13 +1646,10 @@ const ImageGeneration = () => {
             >
               <div className='mb-2 flex items-center justify-between text-xs text-gray-500'>
                 <span>{new Date(entry.savedAt).toLocaleString()}</span>
-                <span>{t(getModeLabel(entry.form.mode))}</span>
+                <span>{`${entry.results.length} ${t('张')}`}</span>
               </div>
-              <div className='mb-2 text-sm font-semibold text-gray-700'>
-                {`${entry.form.model || DEFAULT_FORM.model} · ${entry.form.size || t('默认尺寸')} · ${entry.results.length} ${t('张')}`}
-              </div>
-              <div className='mb-3 line-clamp-2 text-xs text-gray-500'>
-                {entry.form.prompt || t('无提示词')}
+              <div className='mb-3 line-clamp-2 text-sm font-semibold text-gray-700'>
+                {entry.prompt || t('无提示词')}
               </div>
               <div className='grid grid-cols-4 gap-1'>
                 {entry.results.slice(0, 4).map((image, index) => (
