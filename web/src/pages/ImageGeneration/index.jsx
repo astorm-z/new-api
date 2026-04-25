@@ -21,8 +21,10 @@ import {
   Tag,
   TextArea,
   Toast,
+  Tooltip,
   Typography,
 } from '@douyinfe/semi-ui';
+import { IconHelpCircle } from '@douyinfe/semi-icons';
 import {
   AlertTriangle,
   Brush,
@@ -72,7 +74,6 @@ const DEFAULT_FORM = {
   background: '',
   outputFormat: '',
   outputCompression: undefined,
-  partialImages: undefined,
 };
 
 const SIZE_OPTIONS = [
@@ -205,6 +206,75 @@ const normalizeResponseImages = (response, requestedFormat) => {
     .filter(Boolean);
 };
 
+const resolveStreamImageIndex = (payload, fallbackIndex = 0) => {
+  const partialImageIndex = normalizeOptionalInteger(payload?.partial_image_index);
+  if (partialImageIndex !== undefined) return partialImageIndex;
+  const imageIndex = normalizeOptionalInteger(payload?.image_index);
+  if (imageIndex !== undefined) return imageIndex;
+  return fallbackIndex;
+};
+
+const normalizeStreamPayloadImages = (
+  payload,
+  requestedFormat,
+  fallbackIndex = 0,
+  isPartial = false,
+) => {
+  if (Array.isArray(payload?.data)) {
+    return normalizeResponseImages(payload, requestedFormat).map((image, index) => ({
+      ...image,
+      isPartial,
+      streamIndex: index,
+    }));
+  }
+
+  const format = payload?.output_format || requestedFormat || 'png';
+  const mimeType = resolveMimeType(format);
+  const url =
+    payload?.url || (payload?.b64_json ? `data:${mimeType};base64,${payload.b64_json}` : '');
+  if (!url) return [];
+
+  const imageMimeType = resolveImageMimeType(url, mimeType);
+  const streamIndex = resolveStreamImageIndex(payload, fallbackIndex);
+  return [
+    {
+      url,
+      mimeType: imageMimeType,
+      fileName: buildImageFileName(streamIndex, url, imageMimeType),
+      revisedPrompt: payload?.revised_prompt || undefined,
+      isPartial,
+      streamIndex,
+    },
+  ];
+};
+
+const mergeStreamImages = (currentImages, nextImages) => {
+  const merged = [...currentImages];
+  nextImages.forEach((nextImage) => {
+    const existingIndex = merged.findIndex(
+      (image) => image.streamIndex === nextImage.streamIndex,
+    );
+    if (existingIndex >= 0) {
+      merged[existingIndex] = { ...merged[existingIndex], ...nextImage };
+      return;
+    }
+    merged.push(nextImage);
+  });
+
+  return merged.sort(
+    (left, right) => (left.streamIndex ?? 0) - (right.streamIndex ?? 0),
+  );
+};
+
+const stripRuntimeImageFields = (images) =>
+  images.map(({ streamIndex, ...image }) => image);
+
+const omitPartialImages = (value) => {
+  if (!value || typeof value !== 'object') return {};
+  const { partialImages: _partialImages, ...rest } = value;
+  return rest;
+};
+
 const parseImageApiResponse = async (response) => {
   const text = await response.text();
   let data = null;
@@ -223,6 +293,130 @@ const parseImageApiResponse = async (response) => {
   return data;
 };
 
+const consumeStreamImageResponse = async (
+  response,
+  requestedFormat,
+  onProgress,
+) => {
+  if (!response.ok) {
+    await parseImageApiResponse(response);
+  }
+
+  if (!response.body) {
+    throw new Error('当前浏览器不支持流式响应');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let currentImages = [];
+
+  const emitProgress = () => {
+    onProgress?.(stripRuntimeImageFields(currentImages));
+  };
+
+  const processEventBlock = (block) => {
+    let eventName = '';
+    const dataLines = [];
+
+    block.split('\n').forEach((rawLine) => {
+      const line = rawLine.trimEnd();
+      if (!line || line.startsWith(':')) return;
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim();
+        return;
+      }
+      if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trimStart());
+      }
+    });
+
+    const dataText = dataLines.join('\n').trim();
+    if (!dataText || dataText === '[DONE]') return;
+
+    let payload = null;
+    try {
+      payload = JSON.parse(dataText);
+    } catch {
+      return;
+    }
+
+    if (payload?.error?.message) {
+      throw new Error(payload.error.message);
+    }
+
+    const eventType = payload?.type || eventName;
+    const pendingImage = currentImages.find((image) => image.isPartial);
+    const fallbackIndex = pendingImage?.streamIndex ?? currentImages.length;
+
+    if (eventType?.endsWith('partial_image')) {
+      currentImages = mergeStreamImages(
+        currentImages,
+        normalizeStreamPayloadImages(payload, requestedFormat, currentImages.length, true),
+      );
+      emitProgress();
+      return;
+    }
+
+    if (eventType?.endsWith('completed')) {
+      const completedImages = normalizeStreamPayloadImages(
+        payload,
+        requestedFormat,
+        fallbackIndex,
+        false,
+      );
+      if (completedImages.length > 0) {
+        currentImages = mergeStreamImages(currentImages, completedImages);
+      } else if (pendingImage) {
+        currentImages = currentImages.map((image) =>
+          image.streamIndex === pendingImage.streamIndex
+            ? { ...image, isPartial: false }
+            : image,
+        );
+      }
+      emitProgress();
+      return;
+    }
+
+    if (eventType?.endsWith('failed')) {
+      throw new Error(payload?.message || '生成失败');
+    }
+
+    if (Array.isArray(payload?.data)) {
+      currentImages = mergeStreamImages(
+        currentImages,
+        normalizeStreamPayloadImages(payload, requestedFormat, currentImages.length, false),
+      );
+      emitProgress();
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const normalizedBuffer = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const blocks = normalizedBuffer.split('\n\n');
+    buffer = done ? '' : blocks.pop() || '';
+
+    blocks.forEach(processEventBlock);
+
+    if (done) {
+      if (buffer.trim()) {
+        processEventBlock(buffer);
+      }
+      break;
+    }
+  }
+
+  if (currentImages.length === 0) {
+    throw new Error('接口成功返回，但没有可展示的图片');
+  }
+
+  return stripRuntimeImageFields(
+    currentImages.map((image) => ({ ...image, isPartial: false })),
+  );
+};
+
 const formatQuota = (token) => {
   if (token.unlimited_quota) return '无限额度';
   if (typeof token.remain_quota === 'number') return `剩余额度 ${token.remain_quota}`;
@@ -238,16 +432,19 @@ const maskTokenKey = (key) => {
 const formatTokenOptionLabel = (token) =>
   `${token.name || `#${token.id}`}(${maskTokenKey(token.key)})`;
 
-const buildHistoryEntry = (form, images) => ({
-  id: `${Date.now()}-${form.mode}-${images.length}`,
-  version: 1,
-  savedAt: new Date().toISOString(),
-  form: {
-    ...form,
-    tokenId: undefined,
-  },
-  results: images,
-});
+const buildHistoryEntry = (form, images) => {
+  const historyForm = omitPartialImages(form);
+  return {
+    id: `${Date.now()}-${form.mode}-${images.length}`,
+    version: 1,
+    savedAt: new Date().toISOString(),
+    form: {
+      ...historyForm,
+      tokenId: undefined,
+    },
+    results: images,
+  };
+};
 
 const isValidHistoryEntry = (entry) =>
   Boolean(
@@ -292,12 +489,11 @@ const ImageGeneration = () => {
   const drawingEnabled = isDrawingEnabledFromStatus(statusState?.status);
 
   const savedForm = useMemo(() => {
-    const form = safeReadJson(FORM_STORAGE_KEY, {});
+    const restForm = omitPartialImages(safeReadJson(FORM_STORAGE_KEY, {}));
     return {
-      ...form,
-      count: normalizeOptionalInteger(form.count) ?? DEFAULT_FORM.count,
-      outputCompression: normalizeOptionalInteger(form.outputCompression),
-      partialImages: normalizeOptionalInteger(form.partialImages),
+      ...restForm,
+      count: normalizeOptionalInteger(restForm.count) ?? DEFAULT_FORM.count,
+      outputCompression: normalizeOptionalInteger(restForm.outputCompression),
     };
   }, []);
   const [form, setForm] = useState({ ...DEFAULT_FORM, ...savedForm });
@@ -318,6 +514,7 @@ const ImageGeneration = () => {
   const [maskReady, setMaskReady] = useState(false);
   const [hasMask, setHasMask] = useState(false);
   const [maskExpanded, setMaskExpanded] = useState(false);
+  const [settingsPanelRePosKey, setSettingsPanelRePosKey] = useState(0);
 
   const abortControllerRef = useRef(null);
   const sourceInputRef = useRef(null);
@@ -420,7 +617,8 @@ const ImageGeneration = () => {
   }, [form.mode, sourceFiles, loadMaskEditorImage, resetMaskCanvas]);
 
   useEffect(() => {
-    const formToSave = { ...form, tokenId: undefined };
+    const formToSave = omitPartialImages(form);
+    formToSave.tokenId = undefined;
     localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(formToSave));
   }, [form]);
 
@@ -746,9 +944,7 @@ const ImageGeneration = () => {
     if (form.background) payload.background = form.background;
     if (form.outputFormat) payload.output_format = form.outputFormat;
     if (Number.isFinite(form.outputCompression)) payload.output_compression = form.outputCompression;
-    if (Number.isFinite(form.partialImages) && form.partialImages > 0) {
-      payload.partial_images = form.partialImages;
-    }
+    payload.partial_images = 2;
   }, [form]);
 
   const buildGeneratePayload = useCallback(() => {
@@ -776,9 +972,7 @@ const ImageGeneration = () => {
     if (Number.isFinite(form.outputCompression)) {
       formData.append('output_compression', String(form.outputCompression));
     }
-    if (Number.isFinite(form.partialImages) && form.partialImages > 0) {
-      formData.append('partial_images', String(form.partialImages));
-    }
+    formData.append('partial_images', '2');
 
     const filesToSend = form.mode === MODE_MASK ? sourceFiles.slice(0, 1) : sourceFiles;
     filesToSend.forEach((file) => formData.append('image', file, file.name));
@@ -792,7 +986,7 @@ const ImageGeneration = () => {
   }, [createMaskFile, form, sourceFiles]);
 
   const requestImageGeneration = useCallback(
-    async (apiKey, signal) => {
+    async (apiKey, signal, onProgress) => {
       const headers = {
         Authorization: `Bearer ${apiKey}`,
         'New-Api-User': getUserIdFromLocalStorage(),
@@ -808,7 +1002,12 @@ const ImageGeneration = () => {
           body: JSON.stringify(buildGeneratePayload()),
           signal,
         });
-        return parseImageApiResponse(response);
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('text/event-stream')) {
+          return consumeStreamImageResponse(response, form.outputFormat, onProgress);
+        }
+        const payload = await parseImageApiResponse(response);
+        return normalizeResponseImages(payload, form.outputFormat);
       }
 
       const response = await fetch('/v1/images/edits', {
@@ -817,9 +1016,14 @@ const ImageGeneration = () => {
         body: await buildEditFormData(),
         signal,
       });
-      return parseImageApiResponse(response);
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('text/event-stream')) {
+        return consumeStreamImageResponse(response, form.outputFormat, onProgress);
+      }
+      const payload = await parseImageApiResponse(response);
+      return normalizeResponseImages(payload, form.outputFormat);
     },
-    [buildEditFormData, buildGeneratePayload, form.mode],
+    [buildEditFormData, buildGeneratePayload, form.mode, form.outputFormat],
   );
 
   const saveHistoryEntry = useCallback((entry) => {
@@ -846,12 +1050,18 @@ const ImageGeneration = () => {
     setSubmitError('');
     setActiveHistoryId('');
     setRestoredFromHistory(false);
+    setResultImages([]);
     abortControllerRef.current = new AbortController();
 
     try {
       const key = normalizeKey(await fetchTokenKey(form.tokenId));
-      const response = await requestImageGeneration(key, abortControllerRef.current.signal);
-      const images = normalizeResponseImages(response, form.outputFormat);
+      const images = await requestImageGeneration(
+        key,
+        abortControllerRef.current.signal,
+        (streamImages) => {
+          setResultImages(streamImages);
+        },
+      );
       if (images.length === 0) {
         throw new Error(t('接口成功返回，但没有可展示的图片'));
       }
@@ -876,12 +1086,13 @@ const ImageGeneration = () => {
 
   const restoreHistoryEntry = useCallback(
     (entry) => {
+      const entryForm = omitPartialImages(entry.form || {});
       const nextModel =
-        SUPPORTED_IMAGE_MODELS.includes(entry.form.model) &&
-        availableModelValues.includes(entry.form.model)
-          ? entry.form.model
+        SUPPORTED_IMAGE_MODELS.includes(entryForm.model) &&
+        availableModelValues.includes(entryForm.model)
+          ? entryForm.model
           : getBestModel(availableModelValues);
-      setForm((prev) => ({ ...prev, ...entry.form, tokenId: prev.tokenId, model: nextModel }));
+      setForm((prev) => ({ ...prev, ...entryForm, tokenId: prev.tokenId, model: nextModel }));
       setResultImages(entry.results);
       setSubmitError('');
       setActiveHistoryId(entry.id);
@@ -1134,7 +1345,10 @@ const ImageGeneration = () => {
         </div>
       </div>
 
-      <div className='flex-1 space-y-5 overflow-y-auto pr-2 model-settings-scroll'>
+      <div
+        className='flex-1 space-y-5 overflow-y-auto pr-2 model-settings-scroll'
+        onScroll={() => setSettingsPanelRePosKey((prev) => prev + 1)}
+      >
         <div>
           <Typography.Text strong className='mb-2 block'>
             {t('API Key')}
@@ -1242,12 +1456,19 @@ const ImageGeneration = () => {
               <Select optionList={OUTPUT_FORMAT_OPTIONS.map((option) => ({ ...option, label: t(option.label) }))} value={form.outputFormat} onChange={(value) => updateForm({ outputFormat: value })} style={{ width: '100%' }} disabled={!drawingEnabled} />
             </div>
             <div>
-              <Typography.Text strong className='mb-2 block'>{t('输出压缩')}</Typography.Text>
+              <div className='mb-2 flex items-center gap-1'>
+                <Typography.Text strong>{t('输出压缩')}</Typography.Text>
+                <Tooltip
+                  content={t('生成图像的压缩级别（0-100%）。此参数仅支持使用 webp 或 jpeg 输出格式的 GPT 图像模型，默认值为 100')}
+                  position='top'
+                  showArrow
+                  rePosKey={settingsPanelRePosKey}
+                  getPopupContainer={() => document.body}
+                >
+                  <IconHelpCircle className='cursor-help text-gray-400' />
+                </Tooltip>
+              </div>
               <InputNumber min={0} max={100} step={1} placeholder='0-100' value={form.outputCompression} onChange={(value) => updateForm({ outputCompression: normalizeOptionalInteger(value) })} style={{ width: '100%' }} disabled={!drawingEnabled} />
-            </div>
-            <div>
-              <Typography.Text strong className='mb-2 block'>{t('局部预览数')}</Typography.Text>
-              <InputNumber min={0} step={1} placeholder='例如 2' value={form.partialImages} onChange={(value) => updateForm({ partialImages: normalizeOptionalInteger(value) })} style={{ width: '100%' }} disabled={!drawingEnabled} />
             </div>
           </div>
         </details>
@@ -1284,7 +1505,9 @@ const ImageGeneration = () => {
             {t('生图结果')}
           </Typography.Title>
           <Typography.Text type='tertiary' size='small'>
-            {resultImages.length ? `${resultImages.length} ${t('张结果')}${restoredFromHistory ? ` · ${t('来自历史')}` : ''}` : t('还没有生成结果')}
+            {resultImages.length
+              ? `${resultImages.length} ${t('张结果')}${restoredFromHistory ? ` · ${t('来自历史')}` : ''}${submitting ? ` · ${t('生成中')}` : ''}`
+              : t('还没有生成结果')}
           </Typography.Text>
         </div>
         <Badge dot={submitting} type={submitError ? 'danger' : resultImages.length ? 'success' : 'tertiary'}>
@@ -1295,7 +1518,14 @@ const ImageGeneration = () => {
       </div>
 
       <div className='flex-1 overflow-y-auto pr-1'>
-        {submitting ? (
+        {submitError ? (
+          <Empty
+            image={<AlertTriangle size={64} className='text-red-400' />}
+            title={t('生成失败')}
+            description={submitError}
+          />
+        ) : resultImages.length === 0 ? (
+          submitting ? (
           <div className='flex h-full min-h-[360px] items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50'>
             <div className='flex flex-col items-center gap-3 text-center'>
               <Spin size='large' />
@@ -1304,20 +1534,23 @@ const ImageGeneration = () => {
               </Typography.Text>
             </div>
           </div>
-        ) : submitError ? (
-          <Empty
-            image={<AlertTriangle size={64} className='text-red-400' />}
-            title={t('生成失败')}
-            description={submitError}
-          />
-        ) : resultImages.length === 0 ? (
+          ) : (
           <Empty
             image={<Images size={64} className='text-gray-400' />}
             title={drawingEnabled ? t('还没有生成结果') : t('绘图功能未启用')}
             description={drawingEnabled ? t('选择 API Key，写好提示词后点击开始生成。') : t('请在系统设置的绘图设置中启用绘图功能。')}
           />
+          )
         ) : (
           <div className='space-y-4'>
+            {submitting && (
+              <div className='flex items-center gap-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-600'>
+                <Spin size='small' />
+                <Typography.Text className='text-blue-600'>
+                  {t('正在生成图片')}
+                </Typography.Text>
+              </div>
+            )}
             <div className='flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gray-50 p-3'>
               <Tag color='blue'>{`${t('共')} ${resultImages.length} ${t('张图片')}`}</Tag>
               <div className='flex flex-wrap gap-2'>
@@ -1332,9 +1565,12 @@ const ImageGeneration = () => {
                     <img src={image.url} alt={`${t('生成结果')} ${index + 1}`} className='max-h-[420px] w-full object-contain' loading='lazy' />
                   </button>
                   <div className='space-y-3 p-4'>
-                    <Typography.Text ellipsis={{ showTooltip: true }} type='tertiary' size='small'>
-                      {image.fileName}
-                    </Typography.Text>
+                    <div className='flex items-center justify-between gap-3'>
+                      <Typography.Text ellipsis={{ showTooltip: true }} type='tertiary' size='small'>
+                        {image.fileName}
+                      </Typography.Text>
+                      {image.isPartial && <Tag color='orange'>{t('生成中')}</Tag>}
+                    </div>
                     {image.revisedPrompt && (
                       <Typography.Paragraph ellipsis={{ rows: 2, showTooltip: true }} size='small'>
                         {`${t('修订提示词')}: ${image.revisedPrompt}`}
