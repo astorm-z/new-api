@@ -405,12 +405,6 @@ const consumeStreamImageResponse = async (
   );
 };
 
-const formatQuota = (token) => {
-  if (token.unlimited_quota) return '无限额度';
-  if (typeof token.remain_quota === 'number') return `剩余额度 ${token.remain_quota}`;
-  return '额度未知';
-};
-
 const maskTokenKey = (key) => {
   const value = String(key || '').trim();
   if (!value) return '******';
@@ -540,11 +534,6 @@ const ImageGeneration = () => {
   const availableModelValues = useMemo(
     () => models.filter((option) => !option.disabled).map((option) => option.value),
     [models],
-  );
-
-  const selectedToken = useMemo(
-    () => tokens.find((token) => String(token.id) === String(form.tokenId)),
-    [tokens, form.tokenId],
   );
 
   const tokenOptions = useMemo(
@@ -1307,9 +1296,11 @@ const ImageGeneration = () => {
             <Button size='small' theme='light' icon={<Trash2 size={14} />} onClick={clearMaskCanvas} disabled={!maskReady}>
               {t('清空遮罩')}
             </Button>
-            <Button size='small' type='primary' theme='light' icon={<Maximize2 size={14} />} onClick={() => setMaskExpanded(true)} disabled={!maskReady}>
-              {t('放大编辑')}
-            </Button>
+            {!maskExpanded && (
+              <Button size='small' type='primary' theme='light' icon={<Maximize2 size={14} />} onClick={() => setMaskExpanded(true)} disabled={!maskReady}>
+                {t('放大编辑')}
+              </Button>
+            )}
           </div>
           <div
             className={`relative overflow-hidden rounded-2xl border border-dashed border-gray-300 bg-gray-50 ${
@@ -1384,13 +1375,6 @@ const ImageGeneration = () => {
             filter
             disabled={!drawingEnabled || loadingMeta}
           />
-          {selectedToken && (
-            <div className='mt-2 rounded-xl bg-gray-50 p-3 text-xs text-gray-500'>
-              <div>{formatTokenOptionLabel(selectedToken)}</div>
-              <div>{formatQuota(selectedToken)}</div>
-              {selectedToken.group && <div>{`${t('分组')}: ${selectedToken.group}`}</div>}
-            </div>
-          )}
         </div>
 
         <div>
