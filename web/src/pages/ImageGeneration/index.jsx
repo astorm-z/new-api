@@ -56,7 +56,7 @@ const SUPPORTED_IMAGE_MODELS = ['gpt-image-1', 'gpt-image-1.5', 'gpt-image-2'];
 const MODEL_PRIORITY = ['gpt-image-2', 'gpt-image-1.5', 'gpt-image-1'];
 const HISTORY_STORAGE_KEY = 'ai_image_generation_history';
 const FORM_STORAGE_KEY = 'ai_image_generation_form';
-const HISTORY_LIMIT = 10;
+const HISTORY_LIMIT = 1;
 const TOKEN_PAGE_SIZE = 100;
 
 const MODE_GENERATE = 'generate';
@@ -416,6 +416,7 @@ const formatTokenOptionLabel = (token) =>
 const sanitizeHistoryImages = (images) =>
   (Array.isArray(images) ? images : [])
     .filter((image) => image && typeof image.url === 'string' && !image.isPartial)
+    .slice(0, 1)
     .map(({ isPartial: _isPartial, streamIndex: _streamIndex, ...image }) => image);
 
 const buildHistoryEntry = (form, images) => {
@@ -1301,8 +1302,8 @@ const ImageGeneration = () => {
             )}
           </div>
           <div
-            className={`relative overflow-hidden rounded-2xl border border-dashed border-gray-300 bg-gray-50 ${
-              maskExpanded ? 'mx-auto max-h-[68vh] max-w-[900px] overflow-auto' : ''
+            className={`relative rounded-2xl border border-dashed border-gray-300 bg-gray-50 ${
+              maskExpanded ? 'mx-auto max-h-[68vh] max-w-[900px] overflow-auto' : 'overflow-hidden'
             }`}
           >
             {!maskReady && (
@@ -1587,7 +1588,7 @@ const ImageGeneration = () => {
             {t('历史记录')}
           </Typography.Title>
           <Typography.Text type='tertiary' size='small'>
-            {t('最近 10 次成功生成')}
+            {t('仅保存最近 1 张结果图')}
           </Typography.Text>
         </div>
         <Tag color='blue'>{historyEntries.length}</Tag>
@@ -1647,7 +1648,9 @@ const ImageGeneration = () => {
         width='min(920px, 92vw)'
       >
         {previewImage && (
-          <img src={previewImage.url} alt={previewImage.title || t('图片预览')} className='max-h-[75vh] w-full object-contain' />
+          <div className='pb-3'>
+            <img src={previewImage.url} alt={previewImage.title || t('图片预览')} className='max-h-[75vh] w-full object-contain' />
+          </div>
         )}
       </Modal>
 
