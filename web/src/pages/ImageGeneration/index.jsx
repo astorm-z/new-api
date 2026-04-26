@@ -69,7 +69,6 @@ const DEFAULT_FORM = {
   model: 'gpt-image-2',
   prompt: '',
   size: '1024x1024',
-  count: 1,
   quality: '',
   background: '',
   outputFormat: '',
@@ -495,10 +494,11 @@ const ImageGeneration = () => {
 
   const savedForm = useMemo(() => {
     const restForm = omitPartialImages(safeReadJson(FORM_STORAGE_KEY, {}));
+    const restFormWithoutCount = { ...restForm };
+    delete restFormWithoutCount.count;
     return {
-      ...restForm,
-      count: normalizeOptionalInteger(restForm.count) ?? DEFAULT_FORM.count,
-      outputCompression: normalizeOptionalInteger(restForm.outputCompression),
+      ...restFormWithoutCount,
+      outputCompression: normalizeOptionalInteger(restFormWithoutCount.outputCompression),
     };
   }, []);
   const [form, setForm] = useState({ ...DEFAULT_FORM, ...savedForm });
@@ -629,6 +629,7 @@ const ImageGeneration = () => {
 
   useEffect(() => {
     const formToSave = omitPartialImages(form);
+    delete formToSave.count;
     formToSave.tokenId = undefined;
     localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(formToSave));
   }, [form]);
@@ -927,9 +928,6 @@ const ImageGeneration = () => {
       if (sourceFiles.length !== 1) throw new Error(t('遮罩模式需要且只能上传一张源图'));
       if (!maskHasPixels()) throw new Error(t('请先在源图上绘制遮罩区域'));
     }
-    if (!Number.isFinite(form.count) || form.count < 1 || form.count > 10) {
-      throw new Error(t('生成数量需要在 1 到 10 之间'));
-    }
     if (
       form.outputCompression !== undefined &&
       form.outputCompression !== null &&
@@ -940,7 +938,7 @@ const ImageGeneration = () => {
   }, [availableModelValues, drawingEnabled, form, maskHasPixels, sourceFiles.length, t]);
 
   const appendCommonPayloadFields = useCallback((payload) => {
-    payload.n = form.count;
+    payload.n = 1;
     if (form.size) payload.size = form.size;
     if (form.quality) payload.quality = form.quality;
     if (form.background) payload.background = form.background;
@@ -966,7 +964,7 @@ const ImageGeneration = () => {
     formData.append('prompt', form.prompt.trim());
     formData.append('response_format', 'url');
     formData.append('stream', 'true');
-    formData.append('n', String(form.count));
+    formData.append('n', '1');
     if (form.size) formData.append('size', form.size);
     if (form.quality) formData.append('quality', form.quality);
     if (form.background) formData.append('background', form.background);
@@ -1404,29 +1402,15 @@ const ImageGeneration = () => {
           />
         </div>
 
-        <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
-          <div>
-            <Typography.Text strong className='mb-2 block'>{t('模型')}</Typography.Text>
-            <Select
-              optionList={models}
-              value={form.model}
-              onChange={(value) => updateForm({ model: value })}
-              style={{ width: '100%' }}
-              disabled={!drawingEnabled || loadingMeta}
-            />
-          </div>
-          <div>
-            <Typography.Text strong className='mb-2 block'>{t('数量')}</Typography.Text>
-            <InputNumber
-              min={1}
-              max={10}
-              step={1}
-              value={form.count}
-              onChange={(value) => updateForm({ count: normalizeOptionalInteger(value) ?? DEFAULT_FORM.count })}
-              style={{ width: '100%' }}
-              disabled={!drawingEnabled}
-            />
-          </div>
+        <div>
+          <Typography.Text strong className='mb-2 block'>{t('模型')}</Typography.Text>
+          <Select
+            optionList={models}
+            value={form.model}
+            onChange={(value) => updateForm({ model: value })}
+            style={{ width: '100%' }}
+            disabled={!drawingEnabled || loadingMeta}
+          />
         </div>
 
         <div>
