@@ -54,10 +54,35 @@ import {
 
 const SUPPORTED_IMAGE_MODELS = ['gpt-image-1', 'gpt-image-1.5', 'gpt-image-2'];
 const MODEL_PRIORITY = ['gpt-image-2', 'gpt-image-1.5', 'gpt-image-1'];
+const RESPONSE_MODEL_PRIORITY = [
+  'gpt-5.5',
+  'gpt-5',
+  'gpt-5.4-mini',
+  'gpt-5.4-nano',
+  'gpt-5-nano',
+  'gpt-5.2',
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-4.1-nano',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'o3',
+];
 const HISTORY_STORAGE_KEY = 'ai_image_generation_history';
 const FORM_STORAGE_KEY = 'ai_image_generation_form';
-const HISTORY_LIMIT = 1;
+const HISTORY_LIMIT = 10;
+const HISTORY_DB_NAME = 'ai_image_generation_history_db';
+const HISTORY_DB_VERSION = 1;
+const HISTORY_STORE_NAME = 'history';
 const TOKEN_PAGE_SIZE = 100;
+const CUSTOM_SIZE_VALUE = 'custom';
+const CUSTOM_SIZE_LIMITS = {
+  maxEdge: 3840,
+  step: 16,
+  maxRatio: 3,
+  minPixels: 655360,
+  maxPixels: 8294400,
+};
 
 const MODE_GENERATE = 'generate';
 const MODE_EDIT = 'edit';
@@ -66,41 +91,55 @@ const MODE_MASK = 'mask';
 const DEFAULT_FORM = {
   mode: MODE_GENERATE,
   tokenId: undefined,
+  responseModel: RESPONSE_MODEL_PRIORITY[0],
   model: 'gpt-image-2',
   prompt: '',
   size: '1024x1024',
-  quality: '',
-  background: '',
-  outputFormat: '',
+  customWidth: 1024,
+  customHeight: 1024,
+  quality: 'auto',
+  background: 'auto',
+  outputFormat: 'png',
   outputCompression: undefined,
 };
 
 const SIZE_OPTIONS = [
-  { label: '1024 × 1024', value: '1024x1024' },
-  { label: '1536 × 1024（横向）', value: '1536x1024' },
-  { label: '1024 × 1536（纵向）', value: '1024x1536' },
-  { label: 'auto', value: 'auto' },
+  { label: '自动', value: 'auto' },
+  { label: '1k - 1:1 (1024x1024) - 正方形', value: '1024x1024' },
+  { label: '2k - 1:1 (2048x2048) - 正方形', value: '2048x2048' },
+  { label: '2k - 3:2 (2016x1344) - 横屏', value: '2016x1344' },
+  { label: '2k - 2:3 (1344x2016) - 竖屏', value: '1344x2016' },
+  { label: '2k - 4:3 (2048x1536) - 横屏', value: '2048x1536' },
+  { label: '2k - 3:4 (1536x2048) - 竖屏', value: '1536x2048' },
+  { label: '2k - 16:9 (2048x1152) - 横屏', value: '2048x1152' },
+  { label: '2k - 9:16 (1152x2048) - 竖屏', value: '1152x2048' },
+  { label: '4k - 1:1 (2880x2880) - 正方形', value: '2880x2880' },
+  { label: '4k - 3:2 (3504x2336) - 横屏', value: '3504x2336' },
+  { label: '4k - 2:3 (2336x3504) - 竖屏', value: '2336x3504' },
+  { label: '4k - 4:3 (3264x2448) - 横屏', value: '3264x2448' },
+  { label: '4k - 3:4 (2448x3264) - 竖屏', value: '2448x3264' },
+  { label: '4k - 16:9 (3840x2160) - 横屏', value: '3840x2160' },
+  { label: '4k - 9:16 (2160x3840) - 竖屏', value: '2160x3840' },
+  { label: '自定义', value: CUSTOM_SIZE_VALUE },
 ];
 
 const QUALITY_OPTIONS = [
-  { label: '默认', value: '' },
-  { label: 'low', value: 'low' },
-  { label: 'medium', value: 'medium' },
-  { label: 'high', value: 'high' },
+  { label: '自动', value: 'auto' },
+  { label: '低', value: 'low' },
+  { label: '中', value: 'medium' },
+  { label: '高', value: 'high' },
 ];
 
 const BACKGROUND_OPTIONS = [
-  { label: '默认', value: '' },
+  { label: '自动', value: 'auto' },
   { label: '透明', value: 'transparent' },
   { label: '不透明', value: 'opaque' },
-  { label: '自动', value: 'auto' },
 ];
 
 const OUTPUT_FORMAT_OPTIONS = [
-  { label: '默认', value: '' },
-  { label: 'png', value: 'png' },
-  { label: 'jpeg', value: 'jpeg' },
-  { label: 'webp', value: 'webp' },
+  { label: 'PNG 图片', value: 'png' },
+  { label: 'JPEG 图片', value: 'jpeg' },
+  { label: 'WebP 图片', value: 'webp' },
 ];
 
 const normalizeOptionalInteger = (value) => {
@@ -128,7 +167,33 @@ const normalizeKey = (key) => {
 
 const getBestModel = (availableModels = []) => {
   const availableSet = new Set(availableModels);
-  return MODEL_PRIORITY.find((model) => availableSet.has(model)) || MODEL_PRIORITY[0];
+  return (
+    MODEL_PRIORITY.find((model) => availableSet.has(model)) || MODEL_PRIORITY[0]
+  );
+};
+
+const isImageToolModelName = (model) => {
+  const normalized = String(model || '').toLowerCase();
+  return (
+    SUPPORTED_IMAGE_MODELS.includes(model) ||
+    normalized.includes('gpt-image') ||
+    normalized.includes('chatgpt-image') ||
+    normalized.startsWith('dall-e') ||
+    normalized.startsWith('flux') ||
+    normalized.startsWith('imagen-')
+  );
+};
+
+const getBestResponseModel = (availableModels = []) => {
+  const availableSet = new Set(availableModels);
+  const preferredModel = RESPONSE_MODEL_PRIORITY.find((model) =>
+    availableSet.has(model),
+  );
+  if (preferredModel) return preferredModel;
+  return (
+    availableModels.find((model) => !isImageToolModelName(model)) ||
+    RESPONSE_MODEL_PRIORITY[0]
+  );
 };
 
 const safeReadJson = (key, fallback) => {
@@ -153,6 +218,26 @@ const resolveMimeType = (format) => {
       return 'image/png';
   }
 };
+
+const isCompressionSupported = (format) => ['jpeg', 'webp'].includes(format);
+
+const resolveFormSize = (form) => {
+  if (form.size !== CUSTOM_SIZE_VALUE) return form.size;
+  return `${form.customWidth}x${form.customHeight}`;
+};
+
+const base64ToDataUrl = (base64, format) => {
+  if (String(base64 || '').startsWith('data:')) return base64;
+  return `data:${resolveMimeType(format)};base64,${base64}`;
+};
+
+const fileToDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`读取文件失败：${file.name}`));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
 
 const resolveImageMimeType = (url, fallback) => {
   const dataMatch = String(url).match(/^data:([^;]+);/);
@@ -180,7 +265,9 @@ const normalizeResponseImages = (response, requestedFormat) => {
   const mimeType = resolveMimeType(format);
   return (response?.data || [])
     .map((item, index) => {
-      const url = item.url || (item.b64_json ? `data:${mimeType};base64,${item.b64_json}` : '');
+      const url =
+        item.url ||
+        (item.b64_json ? `data:${mimeType};base64,${item.b64_json}` : '');
       if (!url) return null;
       const imageMimeType = resolveImageMimeType(url, mimeType);
       return {
@@ -194,45 +281,103 @@ const normalizeResponseImages = (response, requestedFormat) => {
 };
 
 const resolveStreamImageIndex = (payload, fallbackIndex = 0) => {
-  const partialImageIndex = normalizeOptionalInteger(payload?.partial_image_index);
+  const partialImageIndex = normalizeOptionalInteger(
+    payload?.partial_image_index,
+  );
   if (partialImageIndex !== undefined) return partialImageIndex;
   const imageIndex = normalizeOptionalInteger(payload?.image_index);
   if (imageIndex !== undefined) return imageIndex;
+  const outputIndex = normalizeOptionalInteger(payload?.output_index);
+  if (outputIndex !== undefined) return outputIndex;
   return fallbackIndex;
 };
 
-const normalizeStreamPayloadImages = (
+const walkObject = (value, visitor) => {
+  visitor(value);
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => walkObject(item, visitor));
+    return;
+  }
+  Object.values(value).forEach((item) => walkObject(item, visitor));
+};
+
+const collectStreamPayloadImages = (
   payload,
   requestedFormat,
   fallbackIndex = 0,
   isPartial = false,
 ) => {
   if (Array.isArray(payload?.data)) {
-    return normalizeResponseImages(payload, requestedFormat).map((image, index) => ({
-      ...image,
-      isPartial,
-      streamIndex: index,
-    }));
+    return normalizeResponseImages(payload, requestedFormat).map(
+      (image, index) => ({
+        ...image,
+        isPartial,
+        streamIndex: index,
+      }),
+    );
   }
 
-  const format = payload?.output_format || requestedFormat || 'png';
-  const mimeType = resolveMimeType(format);
-  const url =
-    payload?.url || (payload?.b64_json ? `data:${mimeType};base64,${payload.b64_json}` : '');
-  if (!url) return [];
+  const images = [];
+  const seenBase64 = new Set();
 
-  const imageMimeType = resolveImageMimeType(url, mimeType);
-  const streamIndex = resolveStreamImageIndex(payload, fallbackIndex);
-  return [
-    {
+  walkObject(payload, (item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return;
+
+    const type = String(item.type || '');
+    let base64 = '';
+    let partial = isPartial;
+
+    if (type === 'image_generation_call' && typeof item.result === 'string') {
+      base64 = item.result;
+    } else if (
+      (type === 'image_generation.completed' ||
+        type === 'image_edit.completed') &&
+      typeof item.b64_json === 'string'
+    ) {
+      base64 = item.b64_json;
+    } else if (
+      type.includes('partial_image') ||
+      Object.prototype.hasOwnProperty.call(item, 'partial_image_index')
+    ) {
+      base64 =
+        item.b64_json ||
+        item.partial_image_b64 ||
+        item.partial_image ||
+        item.result ||
+        '';
+      partial = true;
+    }
+
+    if (
+      typeof base64 !== 'string' ||
+      base64.length <= 100 ||
+      seenBase64.has(base64)
+    ) {
+      return;
+    }
+
+    seenBase64.add(base64);
+    const streamIndex = resolveStreamImageIndex(
+      item,
+      fallbackIndex + images.length,
+    );
+    const url = base64ToDataUrl(base64, requestedFormat);
+    const imageMimeType = resolveImageMimeType(
+      url,
+      resolveMimeType(requestedFormat),
+    );
+    images.push({
       url,
       mimeType: imageMimeType,
       fileName: buildImageFileName(streamIndex, url, imageMimeType),
-      revisedPrompt: payload?.revised_prompt || undefined,
-      isPartial,
+      revisedPrompt: item.revised_prompt || item.revisedPrompt || undefined,
+      isPartial: partial,
       streamIndex,
-    },
-  ];
+    });
+  });
+
+  return images;
 };
 
 const mergeStreamImages = (currentImages, nextImages) => {
@@ -273,7 +418,10 @@ const parseImageApiResponse = async (response) => {
 
   if (!response.ok) {
     const message =
-      data?.error?.message || data?.message || data?.raw || `请求失败：HTTP ${response.status}`;
+      data?.error?.message ||
+      data?.message ||
+      data?.raw ||
+      `请求失败：HTTP ${response.status}`;
     throw new Error(message);
   }
 
@@ -333,47 +481,40 @@ const consumeStreamImageResponse = async (
     }
 
     const eventType = payload?.type || eventName;
-    const pendingImage = currentImages.find((image) => image.isPartial);
-    const fallbackIndex = pendingImage?.streamIndex ?? currentImages.length;
+    if (payload?.response?.error?.message) {
+      throw new Error(payload.response.error.message);
+    }
+    if (eventType === 'error' || eventType?.endsWith('failed')) {
+      throw new Error(
+        payload?.message ||
+          payload?.response?.error?.message ||
+          payload?.error?.message ||
+          '生成失败',
+      );
+    }
 
-    if (eventType?.endsWith('partial_image')) {
+    if (eventType?.includes('partial_image')) {
       currentImages = mergeStreamImages(
         currentImages,
-        normalizeStreamPayloadImages(payload, requestedFormat, currentImages.length, true),
+        collectStreamPayloadImages(
+          payload,
+          requestedFormat,
+          currentImages.length,
+          true,
+        ),
       );
       emitProgress();
       return;
     }
 
-    if (eventType?.endsWith('completed')) {
-      const completedImages = normalizeStreamPayloadImages(
-        payload,
-        requestedFormat,
-        fallbackIndex,
-        false,
-      );
-      if (completedImages.length > 0) {
-        currentImages = mergeStreamImages(currentImages, completedImages);
-      } else if (pendingImage) {
-        currentImages = currentImages.map((image) =>
-          image.streamIndex === pendingImage.streamIndex
-            ? { ...image, isPartial: false }
-            : image,
-        );
-      }
-      emitProgress();
-      return;
-    }
-
-    if (eventType?.endsWith('failed')) {
-      throw new Error(payload?.message || '生成失败');
-    }
-
-    if (Array.isArray(payload?.data)) {
-      currentImages = mergeStreamImages(
-        currentImages,
-        normalizeStreamPayloadImages(payload, requestedFormat, currentImages.length, false),
-      );
+    const images = collectStreamPayloadImages(
+      payload,
+      requestedFormat,
+      currentImages.length,
+      false,
+    );
+    if (images.length > 0) {
+      currentImages = mergeStreamImages(currentImages, images);
       emitProgress();
     }
   };
@@ -415,9 +556,13 @@ const formatTokenOptionLabel = (token) =>
 
 const sanitizeHistoryImages = (images) =>
   (Array.isArray(images) ? images : [])
-    .filter((image) => image && typeof image.url === 'string' && !image.isPartial)
+    .filter(
+      (image) => image && typeof image.url === 'string' && !image.isPartial,
+    )
     .slice(0, 1)
-    .map(({ isPartial: _isPartial, streamIndex: _streamIndex, ...image }) => image);
+    .map(
+      ({ isPartial: _isPartial, streamIndex: _streamIndex, ...image }) => image,
+    );
 
 const buildHistoryEntry = (form, images) => {
   const results = sanitizeHistoryImages(images);
@@ -431,7 +576,11 @@ const buildHistoryEntry = (form, images) => {
 };
 
 const normalizeHistoryEntry = (entry) => {
-  if (!entry || typeof entry.id !== 'string' || typeof entry.savedAt !== 'string') {
+  if (
+    !entry ||
+    typeof entry.id !== 'string' ||
+    typeof entry.savedAt !== 'string'
+  ) {
     return null;
   }
 
@@ -461,14 +610,119 @@ const normalizeHistoryEntry = (entry) => {
   return null;
 };
 
-const readHistory = () => {
-  const entries = safeReadJson(HISTORY_STORAGE_KEY, []);
+const normalizeHistoryEntries = (entries, limit = HISTORY_LIMIT) => {
   if (!Array.isArray(entries)) return [];
   return entries
     .map(normalizeHistoryEntry)
     .filter(Boolean)
     .sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt))
-    .slice(0, HISTORY_LIMIT);
+    .slice(0, limit);
+};
+
+const readLegacyHistory = () => {
+  const entries = safeReadJson(HISTORY_STORAGE_KEY, []);
+  return normalizeHistoryEntries(entries);
+};
+
+const requestToPromise = (request) =>
+  new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+const transactionToPromise = (transaction) =>
+  new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+
+const openHistoryDb = () =>
+  new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('当前浏览器不支持 IndexedDB'));
+      return;
+    }
+
+    const request = indexedDB.open(HISTORY_DB_NAME, HISTORY_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(HISTORY_STORE_NAME)) {
+        db.createObjectStore(HISTORY_STORE_NAME, { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+const readHistoryEntries = async (limit = HISTORY_LIMIT) => {
+  const db = await openHistoryDb();
+  try {
+    const transaction = db.transaction(HISTORY_STORE_NAME, 'readonly');
+    const transactionDone = transactionToPromise(transaction);
+    const store = transaction.objectStore(HISTORY_STORE_NAME);
+    const entries = await requestToPromise(store.getAll());
+    await transactionDone;
+    return normalizeHistoryEntries(entries, limit);
+  } finally {
+    db.close();
+  }
+};
+
+const importHistoryEntries = async (entries) => {
+  const normalizedEntries = normalizeHistoryEntries(entries);
+  if (normalizedEntries.length === 0) return [];
+
+  const db = await openHistoryDb();
+  try {
+    const transaction = db.transaction(HISTORY_STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(HISTORY_STORE_NAME);
+    normalizedEntries.forEach((entry) => store.put(entry));
+    await transactionToPromise(transaction);
+  } finally {
+    db.close();
+  }
+
+  return readHistoryEntries();
+};
+
+const saveHistoryEntryToDb = async (entry) => {
+  const db = await openHistoryDb();
+  try {
+    const transaction = db.transaction(HISTORY_STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(HISTORY_STORE_NAME);
+    store.put(entry);
+    await transactionToPromise(transaction);
+  } finally {
+    db.close();
+  }
+
+  const allEntries = await readHistoryEntries(Number.MAX_SAFE_INTEGER);
+  const overflowEntries = allEntries.slice(HISTORY_LIMIT);
+  if (overflowEntries.length > 0) {
+    const cleanupDb = await openHistoryDb();
+    try {
+      const transaction = cleanupDb.transaction(HISTORY_STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(HISTORY_STORE_NAME);
+      overflowEntries.forEach((overflowEntry) => store.delete(overflowEntry.id));
+      await transactionToPromise(transaction);
+    } finally {
+      cleanupDb.close();
+    }
+  }
+
+  return allEntries.slice(0, HISTORY_LIMIT);
+};
+
+const clearHistoryEntries = async () => {
+  const db = await openHistoryDb();
+  try {
+    const transaction = db.transaction(HISTORY_STORE_NAME, 'readwrite');
+    transaction.objectStore(HISTORY_STORE_NAME).clear();
+    await transactionToPromise(transaction);
+  } finally {
+    db.close();
+  }
 };
 
 const extractPagedItems = (payload) =>
@@ -497,24 +751,47 @@ const ImageGeneration = () => {
     const restForm = omitPartialImages(safeReadJson(FORM_STORAGE_KEY, {}));
     const restFormWithoutCount = { ...restForm };
     delete restFormWithoutCount.count;
-    return {
+    delete restFormWithoutCount.moderation;
+    const normalizedForm = {
       ...restFormWithoutCount,
-      outputCompression: normalizeOptionalInteger(restFormWithoutCount.outputCompression),
+      outputCompression: normalizeOptionalInteger(
+        restFormWithoutCount.outputCompression,
+      ),
     };
+    if (!normalizedForm.responseModel)
+      normalizedForm.responseModel = DEFAULT_FORM.responseModel;
+    if (!normalizedForm.quality) normalizedForm.quality = DEFAULT_FORM.quality;
+    if (!normalizedForm.background)
+      normalizedForm.background = DEFAULT_FORM.background;
+    if (!normalizedForm.outputFormat)
+      normalizedForm.outputFormat = DEFAULT_FORM.outputFormat;
+    if (!SIZE_OPTIONS.some((option) => option.value === normalizedForm.size)) {
+      normalizedForm.size = DEFAULT_FORM.size;
+    }
+    normalizedForm.customWidth =
+      normalizeOptionalInteger(normalizedForm.customWidth) ||
+      DEFAULT_FORM.customWidth;
+    normalizedForm.customHeight =
+      normalizeOptionalInteger(normalizedForm.customHeight) ||
+      DEFAULT_FORM.customHeight;
+    return normalizedForm;
   }, []);
   const [form, setForm] = useState({ ...DEFAULT_FORM, ...savedForm });
   const [tokens, setTokens] = useState([]);
   const [models, setModels] = useState([]);
+  const [responseModels, setResponseModels] = useState([]);
   const [loadingMeta, setLoadingMeta] = useState(false);
   const [sourceFiles, setSourceFiles] = useState([]);
   const sourcePreviewUrls = useObjectUrls(sourceFiles);
   const [resultImages, setResultImages] = useState([]);
-  const [historyEntries, setHistoryEntries] = useState(() => readHistory());
+  const [historyEntries, setHistoryEntries] = useState([]);
   const [activeHistoryId, setActiveHistoryId] = useState('');
   const [restoredFromHistory, setRestoredFromHistory] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [previewImage, setPreviewImage] = useState(null);
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const [previewDragging, setPreviewDragging] = useState(false);
   const [maskTool, setMaskTool] = useState('brush');
   const [brushSize, setBrushSize] = useState(44);
   const [maskReady, setMaskReady] = useState(false);
@@ -524,6 +801,8 @@ const ImageGeneration = () => {
 
   const abortControllerRef = useRef(null);
   const sourceInputRef = useRef(null);
+  const previewViewportRef = useRef(null);
+  const previewDragStateRef = useRef(null);
   const maskBaseCanvasRef = useRef(null);
   const maskPaintCanvasRef = useRef(null);
   const maskPointerDownRef = useRef(false);
@@ -533,8 +812,17 @@ const ImageGeneration = () => {
   const maskUndoStackRef = useRef([]);
 
   const availableModelValues = useMemo(
-    () => models.filter((option) => !option.disabled).map((option) => option.value),
+    () =>
+      models.filter((option) => !option.disabled).map((option) => option.value),
     [models],
+  );
+
+  const availableResponseModelValues = useMemo(
+    () =>
+      responseModels
+        .filter((option) => !option.disabled)
+        .map((option) => option.value),
+    [responseModels],
   );
 
   const tokenOptions = useMemo(
@@ -546,9 +834,52 @@ const ImageGeneration = () => {
     [tokens],
   );
 
+  const sizeOptions = useMemo(
+    () => SIZE_OPTIONS.map((option) => ({ ...option, label: t(option.label) })),
+    [t],
+  );
+
+  const qualityOptions = useMemo(
+    () =>
+      QUALITY_OPTIONS.map((option) => ({ ...option, label: t(option.label) })),
+    [t],
+  );
+
+  const backgroundOptions = useMemo(
+    () =>
+      BACKGROUND_OPTIONS.map((option) => ({
+        ...option,
+        label: t(option.label),
+        disabled:
+          form.model === 'gpt-image-2' && option.value === 'transparent',
+      })),
+    [form.model, t],
+  );
+
+  const outputFormatOptions = useMemo(
+    () =>
+      OUTPUT_FORMAT_OPTIONS.map((option) => ({
+        ...option,
+        label: t(option.label),
+      })),
+    [t],
+  );
+
   const updateForm = useCallback((patch) => {
     setForm((prev) => ({ ...prev, ...patch }));
   }, []);
+
+  const handleImageModelChange = useCallback(
+    (model) => {
+      const patch = { model };
+      if (model === 'gpt-image-2' && form.background === 'transparent') {
+        patch.background = 'auto';
+        Toast.warning(t('gpt-image-2 不支持透明背景，已切换为自动'));
+      }
+      updateForm(patch);
+    },
+    [form.background, t, updateForm],
+  );
 
   const resetMaskCanvas = useCallback(() => {
     const baseCanvas = maskBaseCanvasRef.current;
@@ -576,38 +907,43 @@ const ImageGeneration = () => {
     resetMaskCanvas();
   }, [resetMaskCanvas]);
 
-  const loadMaskEditorImage = useCallback((file) => {
-    const baseCanvas = maskBaseCanvasRef.current;
-    const paintCanvas = maskPaintCanvasRef.current;
-    if (!baseCanvas || !paintCanvas || !file) return;
+  const loadMaskEditorImage = useCallback(
+    (file) => {
+      const baseCanvas = maskBaseCanvasRef.current;
+      const paintCanvas = maskPaintCanvasRef.current;
+      if (!baseCanvas || !paintCanvas || !file) return;
 
-    const objectUrl = URL.createObjectURL(file);
-    const image = new window.Image();
-    image.onload = () => {
-      const width = image.naturalWidth || image.width;
-      const height = image.naturalHeight || image.height;
-      baseCanvas.width = width;
-      baseCanvas.height = height;
-      paintCanvas.width = width;
-      paintCanvas.height = height;
+      const objectUrl = URL.createObjectURL(file);
+      const image = new window.Image();
+      image.onload = () => {
+        const width = image.naturalWidth || image.width;
+        const height = image.naturalHeight || image.height;
+        baseCanvas.width = width;
+        baseCanvas.height = height;
+        paintCanvas.width = width;
+        paintCanvas.height = height;
 
-      const baseContext = baseCanvas.getContext('2d');
-      const paintContext = paintCanvas.getContext('2d', { willReadFrequently: true });
-      baseContext.clearRect(0, 0, width, height);
-      paintContext.clearRect(0, 0, width, height);
-      baseContext.drawImage(image, 0, 0, width, height);
-      maskUndoStackRef.current = [];
-      setMaskReady(true);
-      setHasMask(false);
-      URL.revokeObjectURL(objectUrl);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      resetMaskCanvas();
-      Toast.error(t('源图加载失败'));
-    };
-    image.src = objectUrl;
-  }, [resetMaskCanvas, t]);
+        const baseContext = baseCanvas.getContext('2d');
+        const paintContext = paintCanvas.getContext('2d', {
+          willReadFrequently: true,
+        });
+        baseContext.clearRect(0, 0, width, height);
+        paintContext.clearRect(0, 0, width, height);
+        baseContext.drawImage(image, 0, 0, width, height);
+        maskUndoStackRef.current = [];
+        setMaskReady(true);
+        setHasMask(false);
+        URL.revokeObjectURL(objectUrl);
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resetMaskCanvas();
+        Toast.error(t('源图加载失败'));
+      };
+      image.src = objectUrl;
+    },
+    [resetMaskCanvas, t],
+  );
 
   useEffect(() => {
     if (form.mode === MODE_MASK && sourceFiles.length === 1) {
@@ -618,14 +954,35 @@ const ImageGeneration = () => {
   }, [form.mode, sourceFiles, loadMaskEditorImage, resetMaskCanvas]);
 
   useEffect(() => {
-    try {
-      if (localStorage.getItem(HISTORY_STORAGE_KEY)) {
-        const entries = readHistory();
-        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(entries));
-        setHistoryEntries(entries);
+    let mounted = true;
+
+    const loadHistory = async () => {
+      try {
+        const legacyEntries = readLegacyHistory();
+        if (legacyEntries.length > 0) {
+          const importedEntries = await importHistoryEntries(legacyEntries);
+          localStorage.removeItem(HISTORY_STORAGE_KEY);
+          if (mounted) {
+            setHistoryEntries(importedEntries);
+            return;
+          }
+        }
+
+        const entries = await readHistoryEntries();
+        if (mounted) {
+          setHistoryEntries(entries);
+        }
+      } catch {
+        if (mounted) {
+          setHistoryEntries([]);
+        }
       }
-    } catch {
-    }
+    };
+
+    loadHistory();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -645,7 +1002,9 @@ const ImageGeneration = () => {
           let allTokens = [];
 
           while (true) {
-            const tokenRes = await API.get(`/api/token/?p=${page}&size=${TOKEN_PAGE_SIZE}`);
+            const tokenRes = await API.get(
+              `/api/token/?p=${page}&size=${TOKEN_PAGE_SIZE}`,
+            );
             const { success, message, data } = tokenRes.data || {};
             if (!success) {
               throw new Error(message || t('加载生图配置失败'));
@@ -671,8 +1030,11 @@ const ImageGeneration = () => {
         ]);
         setTokens(activeTokens);
 
-        const { success: modelSuccess, message: modelMessage, data: modelData } =
-          modelRes.data || {};
+        const {
+          success: modelSuccess,
+          message: modelMessage,
+          data: modelData,
+        } = modelRes.data || {};
         if (!modelSuccess) {
           throw new Error(modelMessage || t('加载生图配置失败'));
         }
@@ -681,6 +1043,18 @@ const ImageGeneration = () => {
         const usableModels = SUPPORTED_IMAGE_MODELS.filter((model) =>
           userModels.includes(model),
         );
+        const preferredResponseModels = RESPONSE_MODEL_PRIORITY.filter(
+          (model) => userModels.includes(model),
+        );
+        const fallbackResponseModels = userModels.filter(
+          (model) =>
+            !isImageToolModelName(model) &&
+            !preferredResponseModels.includes(model),
+        );
+        const usableResponseModels = [
+          ...preferredResponseModels,
+          ...fallbackResponseModels,
+        ];
         const nextModels = SUPPORTED_IMAGE_MODELS.map((model) => ({
           label: usableModels.includes(model)
             ? model
@@ -688,12 +1062,26 @@ const ImageGeneration = () => {
           value: model,
           disabled: !usableModels.includes(model),
         }));
+        const nextResponseModels =
+          usableResponseModels.length > 0
+            ? usableResponseModels.map((model) => ({
+                label: model,
+                value: model,
+              }))
+            : RESPONSE_MODEL_PRIORITY.map((model) => ({
+                label: `${model}（${t('未在可用模型中')}）`,
+                value: model,
+                disabled: true,
+              }));
         setModels(nextModels);
+        setResponseModels(nextResponseModels);
 
         setForm((prev) => {
           const tokenId =
             prev.tokenId &&
-            activeTokens.some((token) => String(token.id) === String(prev.tokenId))
+            activeTokens.some(
+              (token) => String(token.id) === String(prev.tokenId),
+            )
               ? String(prev.tokenId)
               : activeTokens[0]?.id
                 ? String(activeTokens[0].id)
@@ -701,7 +1089,17 @@ const ImageGeneration = () => {
           const validModel = usableModels.includes(prev.model)
             ? prev.model
             : getBestModel(usableModels);
-          return { ...prev, tokenId, model: validModel };
+          const validResponseModel = usableResponseModels.includes(
+            prev.responseModel,
+          )
+            ? prev.responseModel
+            : getBestResponseModel(usableResponseModels);
+          return {
+            ...prev,
+            tokenId,
+            model: validModel,
+            responseModel: validResponseModel,
+          };
         });
       } catch (error) {
         Toast.error(t('加载生图配置失败'));
@@ -739,6 +1137,12 @@ const ImageGeneration = () => {
     [form.mode, t],
   );
 
+  useEffect(() => {
+    if (form.model === 'gpt-image-2' && form.background === 'transparent') {
+      updateForm({ background: 'auto' });
+    }
+  }, [form.background, form.model, updateForm]);
+
   const getCanvasPoint = useCallback((event) => {
     const canvas = maskPaintCanvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -752,7 +1156,9 @@ const ImageGeneration = () => {
     const canvas = maskPaintCanvasRef.current;
     if (!canvas || !maskReady) return;
     const context = canvas.getContext('2d', { willReadFrequently: true });
-    maskUndoStackRef.current.push(context.getImageData(0, 0, canvas.width, canvas.height));
+    maskUndoStackRef.current.push(
+      context.getImageData(0, 0, canvas.width, canvas.height),
+    );
     if (maskUndoStackRef.current.length > 20) maskUndoStackRef.current.shift();
   }, [maskReady]);
 
@@ -761,7 +1167,9 @@ const ImageGeneration = () => {
       const canvas = maskPaintCanvasRef.current;
       const context = canvas.getContext('2d');
       context.save();
-      context.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+      context.globalCompositeOperation = erase
+        ? 'destination-out'
+        : 'source-over';
       context.strokeStyle = '#ff2d55';
       context.fillStyle = '#ff2d55';
       context.lineWidth = brushSize;
@@ -792,7 +1200,15 @@ const ImageGeneration = () => {
     context.fillStyle = '#ff2d55';
     context.beginPath();
     if (shape === 'circle') {
-      context.ellipse(x + width / 2, y + height / 2, width / 2, height / 2, 0, 0, Math.PI * 2);
+      context.ellipse(
+        x + width / 2,
+        y + height / 2,
+        width / 2,
+        height / 2,
+        0,
+        0,
+        Math.PI * 2,
+      );
       context.fill();
     } else {
       context.fillRect(x, y, width, height);
@@ -814,7 +1230,12 @@ const ImageGeneration = () => {
       maskLastPointRef.current = point;
 
       if (maskTool === 'circle' || maskTool === 'rect') {
-        maskShapeSnapshotRef.current = context.getImageData(0, 0, canvas.width, canvas.height);
+        maskShapeSnapshotRef.current = context.getImageData(
+          0,
+          0,
+          canvas.width,
+          canvas.height,
+        );
       } else {
         drawMaskLine(point, point, maskTool === 'eraser');
       }
@@ -851,7 +1272,8 @@ const ImageGeneration = () => {
         const point = getCanvasPoint(event);
         const canvas = maskPaintCanvasRef.current;
         const context = canvas.getContext('2d');
-        if (maskShapeSnapshotRef.current) context.putImageData(maskShapeSnapshotRef.current, 0, 0);
+        if (maskShapeSnapshotRef.current)
+          context.putImageData(maskShapeSnapshotRef.current, 0, 0);
         drawMaskShape(maskStartPointRef.current, point, maskTool);
       }
       maskPointerDownRef.current = false;
@@ -892,99 +1314,157 @@ const ImageGeneration = () => {
 
   const maskHasPixels = useCallback(() => {
     const canvas = maskPaintCanvasRef.current;
-    if (!canvas || !maskReady || canvas.width === 0 || canvas.height === 0) return false;
+    if (!canvas || !maskReady || canvas.width === 0 || canvas.height === 0)
+      return false;
     const context = canvas.getContext('2d', { willReadFrequently: true });
-    const imageData = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const imageData = context.getImageData(
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    ).data;
     for (let index = 3; index < imageData.length; index += 4) {
       if (imageData[index] > 0) return true;
     }
     return false;
   }, [maskReady]);
 
-  const createMaskFile = useCallback(
-    () =>
-      new Promise((resolve, reject) => {
-        const maskCanvas = buildMaskCanvas();
-        maskCanvas.toBlob((blob) => {
-          if (!blob) {
-            reject(new Error(t('遮罩生成失败')));
-            return;
-          }
-          resolve(new File([blob], 'mask.png', { type: 'image/png' }));
-        }, 'image/png');
-      }),
-    [buildMaskCanvas, t],
-  );
+  const createMaskDataUrl = useCallback(() => {
+    const maskCanvas = buildMaskCanvas();
+    return maskCanvas.toDataURL('image/png');
+  }, [buildMaskCanvas]);
 
   const validateBeforeSubmit = useCallback(() => {
     if (!drawingEnabled) throw new Error(t('绘图功能未启用'));
     if (!form.tokenId) throw new Error(t('请选择 API Key'));
-    if (!SUPPORTED_IMAGE_MODELS.includes(form.model)) throw new Error(t('当前仅支持 gpt-image-1、gpt-image-1.5、gpt-image-2'));
+    if (!form.responseModel) throw new Error(t('请选择 Responses 模型'));
+    if (!availableResponseModelValues.includes(form.responseModel)) {
+      throw new Error(t('当前用户不可用该 Responses 模型'));
+    }
+    if (!SUPPORTED_IMAGE_MODELS.includes(form.model))
+      throw new Error(t('当前仅支持 gpt-image-1、gpt-image-1.5、gpt-image-2'));
     if (!availableModelValues.includes(form.model)) {
       throw new Error(t('当前用户不可用该模型'));
     }
     if (!form.prompt.trim()) throw new Error(t('请输入提示词'));
-    if (form.mode === MODE_EDIT && sourceFiles.length === 0) throw new Error(t('请先上传源图'));
+    if (form.mode === MODE_EDIT && sourceFiles.length === 0)
+      throw new Error(t('请先上传源图'));
     if (form.mode === MODE_MASK) {
-      if (sourceFiles.length !== 1) throw new Error(t('遮罩模式需要且只能上传一张源图'));
+      if (sourceFiles.length !== 1)
+        throw new Error(t('遮罩模式需要且只能上传一张源图'));
       if (!maskHasPixels()) throw new Error(t('请先在源图上绘制遮罩区域'));
+    }
+    if (form.model === 'gpt-image-2' && form.background === 'transparent') {
+      throw new Error(t('gpt-image-2 不支持透明背景'));
+    }
+    if (form.size === CUSTOM_SIZE_VALUE) {
+      const width = Number(form.customWidth);
+      const height = Number(form.customHeight);
+      if (
+        !Number.isInteger(width) ||
+        !Number.isInteger(height) ||
+        width <= 0 ||
+        height <= 0
+      ) {
+        throw new Error(t('请输入有效的自定义宽高'));
+      }
+
+      const longEdge = Math.max(width, height);
+      const shortEdge = Math.min(width, height);
+      const pixels = width * height;
+
+      if (longEdge > CUSTOM_SIZE_LIMITS.maxEdge) {
+        throw new Error(t('自定义尺寸最大边长不能超过 3840px'));
+      }
+      if (
+        width % CUSTOM_SIZE_LIMITS.step !== 0 ||
+        height % CUSTOM_SIZE_LIMITS.step !== 0
+      ) {
+        throw new Error(t('自定义尺寸的宽高都必须是 16px 的倍数'));
+      }
+      if (longEdge / shortEdge > CUSTOM_SIZE_LIMITS.maxRatio) {
+        throw new Error(t('自定义尺寸的长边与短边比例不能超过 3:1'));
+      }
+      if (
+        pixels < CUSTOM_SIZE_LIMITS.minPixels ||
+        pixels > CUSTOM_SIZE_LIMITS.maxPixels
+      ) {
+        throw new Error(
+          t('自定义尺寸总像素数必须在 655,360 到 8,294,400 之间'),
+        );
+      }
     }
     if (
       form.outputCompression !== undefined &&
       form.outputCompression !== null &&
-      (!Number.isFinite(form.outputCompression) || form.outputCompression < 0 || form.outputCompression > 100)
+      (!Number.isFinite(form.outputCompression) ||
+        form.outputCompression < 0 ||
+        form.outputCompression > 100)
     ) {
       throw new Error(t('输出压缩需要在 0 到 100 之间'));
     }
-  }, [availableModelValues, drawingEnabled, form, maskHasPixels, sourceFiles.length, t]);
+  }, [
+    availableModelValues,
+    availableResponseModelValues,
+    drawingEnabled,
+    form,
+    maskHasPixels,
+    sourceFiles.length,
+    t,
+  ]);
 
-  const appendCommonPayloadFields = useCallback((payload) => {
-    payload.n = 1;
-    if (form.size) payload.size = form.size;
-    if (form.quality) payload.quality = form.quality;
-    if (form.background) payload.background = form.background;
-    if (form.outputFormat) payload.output_format = form.outputFormat;
-    if (Number.isFinite(form.outputCompression)) payload.output_compression = form.outputCompression;
-    payload.partial_images = 2;
-  }, [form]);
+  const buildResponsesPayload = useCallback(async () => {
+    const content = [{ type: 'input_text', text: form.prompt.trim() }];
+    const filesToSend =
+      form.mode === MODE_MASK ? sourceFiles.slice(0, 1) : sourceFiles;
 
-  const buildGeneratePayload = useCallback(() => {
-    const payload = {
-      model: form.model,
-      prompt: form.prompt.trim(),
-      response_format: 'url',
-      stream: true,
-    };
-    appendCommonPayloadFields(payload);
-    return payload;
-  }, [appendCommonPayloadFields, form]);
-
-  const buildEditFormData = useCallback(async () => {
-    const formData = new FormData();
-    formData.append('model', form.model);
-    formData.append('prompt', form.prompt.trim());
-    formData.append('response_format', 'url');
-    formData.append('stream', 'true');
-    formData.append('n', '1');
-    if (form.size) formData.append('size', form.size);
-    if (form.quality) formData.append('quality', form.quality);
-    if (form.background) formData.append('background', form.background);
-    if (form.outputFormat) formData.append('output_format', form.outputFormat);
-    if (Number.isFinite(form.outputCompression)) {
-      formData.append('output_compression', String(form.outputCompression));
+    if (form.mode !== MODE_GENERATE) {
+      for (const file of filesToSend) {
+        content.push({
+          type: 'input_image',
+          image_url: await fileToDataUrl(file),
+          detail: 'auto',
+        });
+      }
     }
-    formData.append('partial_images', '2');
 
-    const filesToSend = form.mode === MODE_MASK ? sourceFiles.slice(0, 1) : sourceFiles;
-    filesToSend.forEach((file) => formData.append('image', file, file.name));
+    const outputFormat = form.outputFormat || 'png';
+    const tool = {
+      type: 'image_generation',
+      model: form.model,
+      action: form.mode === MODE_GENERATE ? 'generate' : 'edit',
+      size: resolveFormSize(form),
+      quality: form.quality || 'auto',
+      output_format: outputFormat,
+      background: form.background || 'auto',
+      partial_images: 0,
+    };
+
+    if (
+      isCompressionSupported(outputFormat) &&
+      Number.isFinite(form.outputCompression)
+    ) {
+      tool.output_compression = form.outputCompression;
+    }
 
     if (form.mode === MODE_MASK) {
-      const maskFile = await createMaskFile();
-      formData.append('mask', maskFile, maskFile.name);
+      tool.input_image_mask = { image_url: createMaskDataUrl() };
     }
 
-    return formData;
-  }, [createMaskFile, form, sourceFiles]);
+    return {
+      model: form.responseModel,
+      input: [
+        {
+          role: 'user',
+          content,
+        },
+      ],
+      tools: [tool],
+      tool_choice: { type: 'image_generation' },
+      store: false,
+      stream: true,
+    };
+  }, [createMaskDataUrl, form, sourceFiles]);
 
   const requestImageGeneration = useCallback(
     async (apiKey, signal, onProgress) => {
@@ -993,44 +1473,34 @@ const ImageGeneration = () => {
         'New-Api-User': getUserIdFromLocalStorage(),
       };
 
-      if (form.mode === MODE_GENERATE) {
-        const response = await fetch('/v1/images/generations', {
-          method: 'POST',
-          headers: {
-            ...headers,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(buildGeneratePayload()),
-          signal,
-        });
-        const contentType = response.headers.get('content-type') || '';
-        if (contentType.includes('text/event-stream')) {
-          return consumeStreamImageResponse(response, form.outputFormat, onProgress);
-        }
-        const payload = await parseImageApiResponse(response);
-        return normalizeResponseImages(payload, form.outputFormat);
-      }
-
-      const response = await fetch('/v1/images/edits', {
+      const response = await fetch('/v1/responses', {
         method: 'POST',
-        headers,
-        body: await buildEditFormData(),
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(await buildResponsesPayload()),
         signal,
       });
       const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('text/event-stream')) {
-        return consumeStreamImageResponse(response, form.outputFormat, onProgress);
+      if (!contentType.includes('text/event-stream')) {
+        if (!response.ok) {
+          await parseImageApiResponse(response);
+        }
+        throw new Error(t('接口未返回流式响应'));
       }
-      const payload = await parseImageApiResponse(response);
-      return normalizeResponseImages(payload, form.outputFormat);
+      return consumeStreamImageResponse(
+        response,
+        form.outputFormat,
+        onProgress,
+      );
     },
-    [buildEditFormData, buildGeneratePayload, form.mode, form.outputFormat],
+    [buildResponsesPayload, form.outputFormat, t],
   );
 
-  const saveHistoryEntry = useCallback((entry) => {
+  const saveHistoryEntry = useCallback(async (entry) => {
     try {
-      const next = [entry, ...readHistory().filter((item) => item.id !== entry.id)].slice(0, HISTORY_LIMIT);
-      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
+      const next = await saveHistoryEntryToDb(entry);
       setHistoryEntries(next);
       return true;
     } catch {
@@ -1068,22 +1538,131 @@ const ImageGeneration = () => {
         throw new Error(t('接口成功返回，但没有可展示的图片'));
       }
       setResultImages(entry.results);
-      const saved = saveHistoryEntry(entry);
+      const saved = await saveHistoryEntry(entry);
       setActiveHistoryId(entry.id);
-      Toast.success(saved ? t('生成成功，已保存到历史记录') : t('生成成功，但历史保存失败'));
+      Toast.success(
+        saved ? t('生成成功，已保存到历史记录') : t('生成成功，但历史保存失败'),
+      );
     } catch (error) {
-      const message = error.name === 'AbortError' ? t('请求已取消') : error.message;
+      const message =
+        error.name === 'AbortError' ? t('请求已取消') : error.message;
       setSubmitError(message);
       Toast.error(message);
     } finally {
       setSubmitting(false);
       abortControllerRef.current = null;
     }
-  }, [form, requestImageGeneration, saveHistoryEntry, submitting, t, validateBeforeSubmit]);
+  }, [
+    form,
+    requestImageGeneration,
+    saveHistoryEntry,
+    submitting,
+    t,
+    validateBeforeSubmit,
+  ]);
 
   const cancelGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
   }, []);
+
+  const resetPreviewZoom = useCallback(() => {
+    setPreviewZoom(1);
+    setPreviewDragging(false);
+    previewDragStateRef.current = null;
+    requestAnimationFrame(() => {
+      const viewport = previewViewportRef.current;
+      if (!viewport) return;
+      viewport.scrollLeft = 0;
+      viewport.scrollTop = 0;
+    });
+  }, []);
+
+  useEffect(() => {
+    resetPreviewZoom();
+  }, [previewImage?.url, resetPreviewZoom]);
+
+  const handlePreviewWheel = useCallback((event) => {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+
+    event.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+    const scrollRatioX =
+      viewport.scrollWidth > 0
+        ? (viewport.scrollLeft + pointerX) / viewport.scrollWidth
+        : 0;
+    const scrollRatioY =
+      viewport.scrollHeight > 0
+        ? (viewport.scrollTop + pointerY) / viewport.scrollHeight
+        : 0;
+
+    const normalizedDelta = Math.max(-4, Math.min(4, event.deltaY / 100));
+    const zoomFactor = Math.pow(1.12, -normalizedDelta);
+    setPreviewZoom((prev) => {
+      const next = Math.min(
+        6,
+        Math.max(0.2, Number((prev * zoomFactor).toFixed(2))),
+      );
+      requestAnimationFrame(() => {
+        const nextViewport = previewViewportRef.current;
+        if (!nextViewport) return;
+        nextViewport.scrollLeft =
+          scrollRatioX * nextViewport.scrollWidth - pointerX;
+        nextViewport.scrollTop =
+          scrollRatioY * nextViewport.scrollHeight - pointerY;
+      });
+      return next;
+    });
+  }, []);
+
+  const handlePreviewMouseDown = useCallback(
+    (event) => {
+      if (event.button !== 0 || previewZoom <= 1) return;
+      const viewport = previewViewportRef.current;
+      if (!viewport) return;
+      event.preventDefault();
+      previewDragStateRef.current = {
+        startX: event.clientX,
+        startY: event.clientY,
+        scrollLeft: viewport.scrollLeft,
+        scrollTop: viewport.scrollTop,
+      };
+      setPreviewDragging(true);
+    },
+    [previewZoom],
+  );
+
+  const stopPreviewDrag = useCallback(() => {
+    previewDragStateRef.current = null;
+    setPreviewDragging(false);
+  }, []);
+
+  const handlePreviewMouseMove = useCallback(
+    (event) => {
+      const dragState = previewDragStateRef.current;
+      const viewport = previewViewportRef.current;
+      if (!dragState || !viewport) return;
+      event.preventDefault();
+      viewport.scrollLeft =
+        dragState.scrollLeft - (event.clientX - dragState.startX);
+      viewport.scrollTop =
+        dragState.scrollTop - (event.clientY - dragState.startY);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!previewDragging) return undefined;
+
+    window.addEventListener('mousemove', handlePreviewMouseMove);
+    window.addEventListener('mouseup', stopPreviewDrag);
+    return () => {
+      window.removeEventListener('mousemove', handlePreviewMouseMove);
+      window.removeEventListener('mouseup', stopPreviewDrag);
+    };
+  }, [handlePreviewMouseMove, previewDragging, stopPreviewDrag]);
 
   const restoreHistoryEntry = useCallback(
     (entry) => {
@@ -1104,7 +1683,8 @@ const ImageGeneration = () => {
       title: t('确认清空历史记录？'),
       content: t('历史记录仅保存在当前浏览器，清空后不可恢复。'),
       okType: 'danger',
-      onOk: () => {
+      onOk: async () => {
+        await clearHistoryEntries();
         localStorage.removeItem(HISTORY_STORAGE_KEY);
         setHistoryEntries([]);
         setResultImages([]);
@@ -1118,12 +1698,13 @@ const ImageGeneration = () => {
     setForm((prev) => ({
       ...DEFAULT_FORM,
       tokenId: prev.tokenId,
+      responseModel: getBestResponseModel(availableResponseModelValues),
       model: getBestModel(availableModelValues),
     }));
     setSubmitError('');
     setRestoredFromHistory(false);
     clearSourceFiles();
-  }, [availableModelValues, clearSourceFiles]);
+  }, [availableModelValues, availableResponseModelValues, clearSourceFiles]);
 
   const copyImageLink = useCallback(
     async (image) => {
@@ -1185,9 +1766,17 @@ const ImageGeneration = () => {
     return (
       <div className='space-y-3'>
         <div className='flex items-center justify-between'>
-          <Typography.Text strong>{t(form.mode === MODE_MASK ? '源图（仅一张）' : '源图')}</Typography.Text>
+          <Typography.Text strong>
+            {t(form.mode === MODE_MASK ? '源图（仅一张）' : '源图')}
+          </Typography.Text>
           {sourceFiles.length > 0 && (
-            <Button size='small' theme='borderless' type='danger' icon={<Trash2 size={14} />} onClick={clearSourceFiles}>
+            <Button
+              size='small'
+              theme='borderless'
+              type='danger'
+              icon={<Trash2 size={14} />}
+              onClick={clearSourceFiles}
+            >
               {t('清空')}
             </Button>
           )}
@@ -1201,7 +1790,11 @@ const ImageGeneration = () => {
           className='block w-full text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-semi-color-primary file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:opacity-90'
         />
         <Typography.Text type='tertiary' size='small'>
-          {t(form.mode === MODE_MASK ? '遮罩模式只使用一张源图，遮罩在页面内绘制生成。' : '图生图可上传一张或多张源图。')}
+          {t(
+            form.mode === MODE_MASK
+              ? '遮罩模式只使用一张源图，遮罩在页面内绘制生成。'
+              : '图生图可上传一张或多张源图。',
+          )}
         </Typography.Text>
         {sourcePreviewUrls.length > 0 && (
           <div className='grid grid-cols-3 gap-2'>
@@ -1210,9 +1803,15 @@ const ImageGeneration = () => {
                 key={url}
                 type='button'
                 className='aspect-square overflow-hidden rounded-xl border border-gray-200 bg-gray-50'
-                onClick={() => setPreviewImage({ url, title: `${t('源图')} ${index + 1}` })}
+                onClick={() =>
+                  setPreviewImage({ url, title: `${t('源图')} ${index + 1}` })
+                }
               >
-                <img src={url} alt={`${t('源图')} ${index + 1}`} className='h-full w-full object-cover' />
+                <img
+                  src={url}
+                  alt={`${t('源图')} ${index + 1}`}
+                  className='h-full w-full object-cover'
+                />
               </button>
             ))}
           </div>
@@ -1246,7 +1845,9 @@ const ImageGeneration = () => {
             <div>
               <Typography.Text strong>{t('遮罩编辑器')}</Typography.Text>
               <div className='mt-1 text-xs text-gray-500'>
-                {t('红色标记表示要修改的区域，提交时会自动生成透明编辑区域的 PNG mask。')}
+                {t(
+                  '红色标记表示要修改的区域，提交时会自动生成透明编辑区域的 PNG mask。',
+                )}
               </div>
             </div>
             {maskExpanded && (
@@ -1289,21 +1890,42 @@ const ImageGeneration = () => {
             <Tag color='blue'>{brushSize}px</Tag>
           </div>
           <div className='flex flex-wrap gap-2'>
-            <Button size='small' theme='light' icon={<Undo2 size={14} />} onClick={undoMaskAction} disabled={!maskReady}>
+            <Button
+              size='small'
+              theme='light'
+              icon={<Undo2 size={14} />}
+              onClick={undoMaskAction}
+              disabled={!maskReady}
+            >
               {t('撤销')}
             </Button>
-            <Button size='small' theme='light' icon={<Trash2 size={14} />} onClick={clearMaskCanvas} disabled={!maskReady}>
+            <Button
+              size='small'
+              theme='light'
+              icon={<Trash2 size={14} />}
+              onClick={clearMaskCanvas}
+              disabled={!maskReady}
+            >
               {t('清空遮罩')}
             </Button>
             {!maskExpanded && (
-              <Button size='small' type='primary' theme='light' icon={<Maximize2 size={14} />} onClick={() => setMaskExpanded(true)} disabled={!maskReady}>
+              <Button
+                size='small'
+                type='primary'
+                theme='light'
+                icon={<Maximize2 size={14} />}
+                onClick={() => setMaskExpanded(true)}
+                disabled={!maskReady}
+              >
                 {t('放大编辑')}
               </Button>
             )}
           </div>
           <div
             className={`relative rounded-2xl border border-dashed border-gray-300 bg-gray-50 ${
-              maskExpanded ? 'mx-auto max-h-[68vh] max-w-[900px] overflow-auto' : 'overflow-hidden'
+              maskExpanded
+                ? 'mx-auto max-h-[68vh] max-w-[900px] overflow-auto'
+                : 'overflow-hidden'
             }`}
           >
             {!maskReady && (
@@ -1312,7 +1934,10 @@ const ImageGeneration = () => {
               </div>
             )}
             <div className={maskReady ? 'relative' : 'hidden'}>
-              <canvas ref={maskBaseCanvasRef} className='block h-auto w-full select-none' />
+              <canvas
+                ref={maskBaseCanvasRef}
+                className='block h-auto w-full select-none'
+              />
               <canvas
                 ref={maskPaintCanvasRef}
                 className='absolute inset-0 h-full w-full touch-none select-none opacity-70'
@@ -1339,7 +1964,12 @@ const ImageGeneration = () => {
     <Card
       className='h-full flex flex-col'
       bordered={false}
-      bodyStyle={{ padding: 24, height: '100%', display: 'flex', flexDirection: 'column' }}
+      bodyStyle={{
+        padding: 24,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
     >
       <div className='mb-6 flex items-center justify-between'>
         <div className='flex items-center'>
@@ -1378,9 +2008,41 @@ const ImageGeneration = () => {
 
         <div>
           <Typography.Text strong className='mb-2 block'>
+            {t('Responses 模型')}
+          </Typography.Text>
+          <Select
+            optionList={responseModels}
+            value={form.responseModel}
+            onChange={(value) => updateForm({ responseModel: value })}
+            style={{ width: '100%' }}
+            filter
+            disabled={!drawingEnabled || loadingMeta}
+          />
+        </div>
+
+        <div>
+          <Typography.Text strong className='mb-2 block'>
+            {t('图片模型')}
+          </Typography.Text>
+          <Select
+            optionList={models}
+            value={form.model}
+            onChange={handleImageModelChange}
+            style={{ width: '100%' }}
+            disabled={!drawingEnabled || loadingMeta}
+          />
+        </div>
+
+        <div>
+          <Typography.Text strong className='mb-2 block'>
             {t('模式')}
           </Typography.Text>
-          <Tabs type='button' activeKey={form.mode} onChange={handleModeChange} className='w-full'>
+          <Tabs
+            type='button'
+            activeKey={form.mode}
+            onChange={handleModeChange}
+            className='w-full'
+          >
             <TabPane tab={t('文生图')} itemKey={MODE_GENERATE} />
             <TabPane tab={t('图生图')} itemKey={MODE_EDIT} />
             <TabPane tab={t('图生图（遮罩）')} itemKey={MODE_MASK} />
@@ -1404,47 +2066,24 @@ const ImageGeneration = () => {
         </div>
 
         <div>
-          <Typography.Text strong className='mb-2 block'>{t('模型')}</Typography.Text>
+          <Typography.Text strong className='mb-2 block'>
+            {t('尺寸')}
+          </Typography.Text>
           <Select
-            optionList={models}
-            value={form.model}
-            onChange={(value) => updateForm({ model: value })}
-            style={{ width: '100%' }}
-            disabled={!drawingEnabled || loadingMeta}
-          />
-        </div>
-
-        <div>
-          <Typography.Text strong className='mb-2 block'>{t('尺寸')}</Typography.Text>
-          <Select
-            optionList={SIZE_OPTIONS.map((option) => ({ ...option, label: t(option.label) }))}
+            optionList={sizeOptions}
             value={form.size}
             onChange={(value) => updateForm({ size: value })}
             style={{ width: '100%' }}
             disabled={!drawingEnabled}
           />
-        </div>
-
-        <details className='rounded-2xl border border-gray-200 bg-gray-50 p-4'>
-          <summary className='cursor-pointer text-sm font-semibold text-gray-700'>{t('高级参数')}</summary>
-          <div className='mt-4 grid grid-cols-1 gap-4 md:grid-cols-2'>
-            <div>
-              <Typography.Text strong className='mb-2 block'>{t('质量')}</Typography.Text>
-              <Select optionList={QUALITY_OPTIONS.map((option) => ({ ...option, label: t(option.label) }))} value={form.quality} onChange={(value) => updateForm({ quality: value })} style={{ width: '100%' }} disabled={!drawingEnabled} />
-            </div>
-            <div>
-              <Typography.Text strong className='mb-2 block'>{t('背景')}</Typography.Text>
-              <Select optionList={BACKGROUND_OPTIONS.map((option) => ({ ...option, label: t(option.label) }))} value={form.background} onChange={(value) => updateForm({ background: value })} style={{ width: '100%' }} disabled={!drawingEnabled} />
-            </div>
-            <div>
-              <Typography.Text strong className='mb-2 block'>{t('输出格式')}</Typography.Text>
-              <Select optionList={OUTPUT_FORMAT_OPTIONS.map((option) => ({ ...option, label: t(option.label) }))} value={form.outputFormat} onChange={(value) => updateForm({ outputFormat: value })} style={{ width: '100%' }} disabled={!drawingEnabled} />
-            </div>
-            <div>
-              <div className='mb-2 flex items-center gap-1'>
-                <Typography.Text strong>{t('输出压缩')}</Typography.Text>
+          {form.size === CUSTOM_SIZE_VALUE && (
+            <div className='mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3'>
+              <div className='mb-3 flex items-center gap-1'>
+                <Typography.Text strong>{t('自定义宽高')}</Typography.Text>
                 <Tooltip
-                  content={t('生成图像的压缩级别（0-100%）。此参数仅支持使用 webp 或 jpeg 输出格式的 GPT 图像模型，默认值为 100')}
+                  content={t(
+                    'OpenAI 自定义尺寸限制：最大边长 ≤ 3840px；宽高都必须是 16px 的倍数；长边与短边比例 ≤ 3:1；总像素数在 655,360 到 8,294,400 之间。',
+                  )}
                   position='top'
                   showArrow
                   rePosKey={settingsPanelRePosKey}
@@ -1453,7 +2092,112 @@ const ImageGeneration = () => {
                   <IconHelpCircle className='cursor-help text-gray-400' />
                 </Tooltip>
               </div>
-              <InputNumber min={0} max={100} step={1} placeholder='0-100' value={form.outputCompression} onChange={(value) => updateForm({ outputCompression: normalizeOptionalInteger(value) })} style={{ width: '100%' }} disabled={!drawingEnabled} />
+              <div className='grid grid-cols-2 gap-3'>
+                <InputNumber
+                  min={16}
+                  max={3840}
+                  step={16}
+                  value={form.customWidth}
+                  onChange={(value) =>
+                    updateForm({ customWidth: normalizeOptionalInteger(value) })
+                  }
+                  prefix={t('宽')}
+                  suffix='px'
+                  style={{ width: '100%' }}
+                  disabled={!drawingEnabled}
+                />
+                <InputNumber
+                  min={16}
+                  max={3840}
+                  step={16}
+                  value={form.customHeight}
+                  onChange={(value) =>
+                    updateForm({
+                      customHeight: normalizeOptionalInteger(value),
+                    })
+                  }
+                  prefix={t('高')}
+                  suffix='px'
+                  style={{ width: '100%' }}
+                  disabled={!drawingEnabled}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <details className='rounded-2xl border border-gray-200 bg-gray-50 p-4'>
+          <summary className='cursor-pointer text-sm font-semibold text-gray-700'>
+            {t('高级参数')}
+          </summary>
+          <div className='mt-4 grid grid-cols-1 gap-4 md:grid-cols-2'>
+            <div>
+              <Typography.Text strong className='mb-2 block'>
+                {t('质量')}
+              </Typography.Text>
+              <Select
+                optionList={qualityOptions}
+                value={form.quality}
+                onChange={(value) => updateForm({ quality: value })}
+                style={{ width: '100%' }}
+                disabled={!drawingEnabled}
+              />
+            </div>
+            <div>
+              <Typography.Text strong className='mb-2 block'>
+                {t('背景')}
+              </Typography.Text>
+              <Select
+                optionList={backgroundOptions}
+                value={form.background}
+                onChange={(value) => updateForm({ background: value })}
+                style={{ width: '100%' }}
+                disabled={!drawingEnabled}
+              />
+            </div>
+            <div>
+              <Typography.Text strong className='mb-2 block'>
+                {t('输出格式')}
+              </Typography.Text>
+              <Select
+                optionList={outputFormatOptions}
+                value={form.outputFormat}
+                onChange={(value) => updateForm({ outputFormat: value })}
+                style={{ width: '100%' }}
+                disabled={!drawingEnabled}
+              />
+            </div>
+            <div>
+              <div className='mb-2 flex items-center gap-1'>
+                <Typography.Text strong>{t('输出压缩')}</Typography.Text>
+                <Tooltip
+                  content={t(
+                    '生成图像的压缩级别（0-100%）。此参数仅支持使用 WebP 或 JPEG 输出格式的 GPT 图像模型，默认值为 100',
+                  )}
+                  position='top'
+                  showArrow
+                  rePosKey={settingsPanelRePosKey}
+                  getPopupContainer={() => document.body}
+                >
+                  <IconHelpCircle className='cursor-help text-gray-400' />
+                </Tooltip>
+              </div>
+              <InputNumber
+                min={0}
+                max={100}
+                step={1}
+                placeholder='0-100'
+                value={form.outputCompression}
+                onChange={(value) =>
+                  updateForm({
+                    outputCompression: normalizeOptionalInteger(value),
+                  })
+                }
+                style={{ width: '100%' }}
+                disabled={
+                  !drawingEnabled || !isCompressionSupported(form.outputFormat)
+                }
+              />
             </div>
           </div>
         </details>
@@ -1461,15 +2205,31 @@ const ImageGeneration = () => {
 
       <div className='mt-5 space-y-3'>
         <div className='grid grid-cols-2 gap-3'>
-          <Button type='primary' theme='solid' icon={<Sparkles size={16} />} loading={submitting} disabled={!drawingEnabled || loadingMeta} onClick={handleSubmit}>
+          <Button
+            type='primary'
+            theme='solid'
+            icon={<Sparkles size={16} />}
+            loading={submitting}
+            disabled={!drawingEnabled || loadingMeta}
+            onClick={handleSubmit}
+          >
             {submitting ? t('生成中...') : t('开始生成')}
           </Button>
           {submitting ? (
-            <Button type='danger' theme='light' icon={<X size={16} />} onClick={cancelGeneration}>
+            <Button
+              type='danger'
+              theme='light'
+              icon={<X size={16} />}
+              onClick={cancelGeneration}
+            >
               {t('取消请求')}
             </Button>
           ) : (
-            <Button theme='light' icon={<RotateCcw size={16} />} onClick={resetForm}>
+            <Button
+              theme='light'
+              icon={<RotateCcw size={16} />}
+              onClick={resetForm}
+            >
               {t('重置表单')}
             </Button>
           )}
@@ -1482,7 +2242,12 @@ const ImageGeneration = () => {
     <Card
       className='h-full flex flex-col'
       bordered={false}
-      bodyStyle={{ padding: 24, height: '100%', display: 'flex', flexDirection: 'column' }}
+      bodyStyle={{
+        padding: 24,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
     >
       <div className='mb-5 flex items-center justify-between'>
         <div>
@@ -1495,9 +2260,26 @@ const ImageGeneration = () => {
               : t('还没有生成结果')}
           </Typography.Text>
         </div>
-        <Badge dot={submitting} type={submitError ? 'danger' : resultImages.length ? 'success' : 'tertiary'}>
-          <Tag color={submitError ? 'red' : resultImages.length ? 'green' : 'grey'}>
-            {submitting ? t('生成中') : submitError ? t('异常') : resultImages.length ? t('完成') : t('空闲')}
+        <Badge
+          dot={submitting}
+          type={
+            submitError
+              ? 'danger'
+              : resultImages.length
+                ? 'success'
+                : 'tertiary'
+          }
+        >
+          <Tag
+            color={submitError ? 'red' : resultImages.length ? 'green' : 'grey'}
+          >
+            {submitting
+              ? t('生成中')
+              : submitError
+                ? t('异常')
+                : resultImages.length
+                  ? t('完成')
+                  : t('空闲')}
           </Tag>
         </Badge>
       </div>
@@ -1511,20 +2293,24 @@ const ImageGeneration = () => {
           />
         ) : resultImages.length === 0 ? (
           submitting ? (
-          <div className='flex h-full min-h-[360px] items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50'>
-            <div className='flex flex-col items-center gap-3 text-center'>
-              <Spin size='large' />
-              <Typography.Text className='whitespace-nowrap text-semi-color-primary'>
-                {t('正在生成图片')}
-              </Typography.Text>
+            <div className='flex h-full min-h-[360px] items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50'>
+              <div className='flex flex-col items-center gap-3 text-center'>
+                <Spin size='large' />
+                <Typography.Text className='whitespace-nowrap text-semi-color-primary'>
+                  {t('正在生成图片')}
+                </Typography.Text>
+              </div>
             </div>
-          </div>
           ) : (
-          <Empty
-            image={<Images size={64} className='text-gray-400' />}
-            title={drawingEnabled ? t('还没有生成结果') : t('绘图功能未启用')}
-            description={drawingEnabled ? t('选择 API Key，写好提示词后点击开始生成。') : t('请在系统设置的绘图设置中启用绘图功能。')}
-          />
+            <Empty
+              image={<Images size={64} className='text-gray-400' />}
+              title={drawingEnabled ? t('还没有生成结果') : t('绘图功能未启用')}
+              description={
+                drawingEnabled
+                  ? t('选择 API Key，写好提示词后点击开始生成。')
+                  : t('请在系统设置的绘图设置中启用绘图功能。')
+              }
+            />
           )
         ) : (
           <div className='space-y-4'>
@@ -1539,32 +2325,95 @@ const ImageGeneration = () => {
             <div className='flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gray-50 p-3'>
               <Tag color='blue'>{`${t('共')} ${resultImages.length} ${t('张图片')}`}</Tag>
               <div className='flex flex-wrap gap-2'>
-                <Button size='small' theme='light' icon={<Copy size={14} />} onClick={copyAllImageLinks}>{t('复制全部链接')}</Button>
-                <Button size='small' theme='light' icon={<Download size={14} />} onClick={downloadAllImages}>{t('下载全部')}</Button>
+                <Button
+                  size='small'
+                  theme='light'
+                  icon={<Copy size={14} />}
+                  onClick={copyAllImageLinks}
+                >
+                  {t('复制全部链接')}
+                </Button>
+                <Button
+                  size='small'
+                  theme='light'
+                  icon={<Download size={14} />}
+                  onClick={downloadAllImages}
+                >
+                  {t('下载全部')}
+                </Button>
               </div>
             </div>
             <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
               {resultImages.map((image, index) => (
-                <article key={`${image.url}-${index}`} className='overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm'>
-                  <button type='button' className='block w-full bg-gray-50' onClick={() => setPreviewImage({ url: image.url, title: image.fileName })}>
-                    <img src={image.url} alt={`${t('生成结果')} ${index + 1}`} className='max-h-[420px] w-full object-contain' loading='lazy' />
+                <article
+                  key={`${image.url}-${index}`}
+                  className='overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm'
+                >
+                  <button
+                    type='button'
+                    className='block w-full bg-gray-50'
+                    onClick={() =>
+                      setPreviewImage({ url: image.url, title: image.fileName })
+                    }
+                  >
+                    <img
+                      src={image.url}
+                      alt={`${t('生成结果')} ${index + 1}`}
+                      className='max-h-[420px] w-full object-contain'
+                      loading='lazy'
+                    />
                   </button>
                   <div className='space-y-3 p-4'>
                     <div className='flex items-center justify-between gap-3'>
-                      <Typography.Text ellipsis={{ showTooltip: true }} type='tertiary' size='small'>
+                      <Typography.Text
+                        ellipsis={{ showTooltip: true }}
+                        type='tertiary'
+                        size='small'
+                      >
                         {image.fileName}
                       </Typography.Text>
-                      {image.isPartial && <Tag color='orange'>{t('生成中')}</Tag>}
+                      {image.isPartial && (
+                        <Tag color='orange'>{t('生成中')}</Tag>
+                      )}
                     </div>
                     {image.revisedPrompt && (
-                      <Typography.Paragraph ellipsis={{ rows: 2, showTooltip: true }} size='small'>
+                      <Typography.Paragraph
+                        ellipsis={{ rows: 2, showTooltip: true }}
+                        size='small'
+                      >
                         {`${t('修订提示词')}: ${image.revisedPrompt}`}
                       </Typography.Paragraph>
                     )}
                     <div className='flex flex-wrap gap-2'>
-                      <Button size='small' theme='light' icon={<Eye size={14} />} onClick={() => setPreviewImage({ url: image.url, title: image.fileName })}>{t('预览')}</Button>
-                      <Button size='small' theme='light' icon={<Copy size={14} />} onClick={() => copyImageLink(image)}>{t('复制链接')}</Button>
-                      <Button size='small' theme='light' icon={<Download size={14} />} onClick={() => downloadImage(image)}>{t('下载')}</Button>
+                      <Button
+                        size='small'
+                        theme='light'
+                        icon={<Eye size={14} />}
+                        onClick={() =>
+                          setPreviewImage({
+                            url: image.url,
+                            title: image.fileName,
+                          })
+                        }
+                      >
+                        {t('预览')}
+                      </Button>
+                      <Button
+                        size='small'
+                        theme='light'
+                        icon={<Copy size={14} />}
+                        onClick={() => copyImageLink(image)}
+                      >
+                        {t('复制链接')}
+                      </Button>
+                      <Button
+                        size='small'
+                        theme='light'
+                        icon={<Download size={14} />}
+                        onClick={() => downloadImage(image)}
+                      >
+                        {t('下载')}
+                      </Button>
                     </div>
                   </div>
                 </article>
@@ -1580,7 +2429,12 @@ const ImageGeneration = () => {
     <Card
       className='h-full flex flex-col'
       bordered={false}
-      bodyStyle={{ padding: 24, height: '100%', display: 'flex', flexDirection: 'column' }}
+      bodyStyle={{
+        padding: 24,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
     >
       <div className='mb-5 flex items-center justify-between'>
         <div>
@@ -1588,19 +2442,29 @@ const ImageGeneration = () => {
             {t('历史记录')}
           </Typography.Title>
           <Typography.Text type='tertiary' size='small'>
-            {t('仅保存最近 1 张结果图')}
+            {t('仅保存最近 10 条记录')}
           </Typography.Text>
         </div>
         <Tag color='blue'>{historyEntries.length}</Tag>
       </div>
       {historyEntries.length > 0 && (
-        <Button className='mb-3' theme='light' type='danger' icon={<Trash2 size={14} />} onClick={clearHistory}>
+        <Button
+          className='mb-3'
+          theme='light'
+          type='danger'
+          icon={<Trash2 size={14} />}
+          onClick={clearHistory}
+        >
           {t('清空历史')}
         </Button>
       )}
       <div className='flex-1 space-y-3 overflow-y-auto pr-1'>
         {historyEntries.length === 0 ? (
-          <Empty image={<RefreshCw size={56} className='text-gray-400' />} title={t('暂无历史记录')} description={t('成功生成后会自动保存到这里。')} />
+          <Empty
+            image={<RefreshCw size={56} className='text-gray-400' />}
+            title={t('暂无历史记录')}
+            description={t('成功生成后会自动保存到这里。')}
+          />
         ) : (
           historyEntries.map((entry) => (
             <button
@@ -1618,8 +2482,15 @@ const ImageGeneration = () => {
               </div>
               <div className='grid grid-cols-4 gap-1'>
                 {entry.results.slice(0, 4).map((image, index) => (
-                  <div key={`${image.url}-${index}`} className='aspect-square overflow-hidden rounded-lg bg-gray-100'>
-                    <img src={image.url} alt={`${t('历史缩略图')} ${index + 1}`} className='h-full w-full object-cover' />
+                  <div
+                    key={`${image.url}-${index}`}
+                    className='aspect-square overflow-hidden rounded-lg bg-gray-100'
+                  >
+                    <img
+                      src={image.url}
+                      alt={`${t('历史缩略图')} ${index + 1}`}
+                      className='h-full w-full object-cover'
+                    />
                   </div>
                 ))}
               </div>
@@ -1634,9 +2505,15 @@ const ImageGeneration = () => {
     <div className='h-full'>
       <div className='mt-[60px] h-[calc(100vh-66px)] overflow-y-auto bg-transparent p-4 xl:overflow-hidden'>
         <div className='grid min-h-full grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)] xl:h-full xl:grid-cols-[360px_minmax(0,1fr)_320px]'>
-          <div className='min-h-[520px] overflow-hidden xl:min-h-0'>{renderSettingsPanel()}</div>
-          <div className='min-h-[520px] overflow-hidden xl:min-h-0'>{renderResultPanel()}</div>
-          <div className='min-h-[360px] overflow-hidden lg:col-span-2 xl:col-span-1 xl:min-h-0'>{renderHistoryPanel()}</div>
+          <div className='min-h-[520px] overflow-hidden xl:min-h-0'>
+            {renderSettingsPanel()}
+          </div>
+          <div className='min-h-[520px] overflow-hidden xl:min-h-0'>
+            {renderResultPanel()}
+          </div>
+          <div className='min-h-[360px] overflow-hidden lg:col-span-2 xl:col-span-1 xl:min-h-0'>
+            {renderHistoryPanel()}
+          </div>
         </div>
       </div>
 
@@ -1649,11 +2526,45 @@ const ImageGeneration = () => {
       >
         {previewImage && (
           <div className='pb-3'>
-            <img src={previewImage.url} alt={previewImage.title || t('图片预览')} className='max-h-[75vh] w-full object-contain' />
+            <div className='mb-2 flex items-center justify-end gap-2'>
+              <Tag color='blue'>{Math.round(previewZoom * 100)}%</Tag>
+              <Button
+                size='small'
+                theme='light'
+                onClick={resetPreviewZoom}
+              >
+                {t('重置缩放')}
+              </Button>
+            </div>
+            <div
+              ref={previewViewportRef}
+              className={`max-h-[75vh] overflow-auto rounded-xl bg-gray-50 select-none ${
+                previewZoom > 1
+                  ? previewDragging
+                    ? 'cursor-grabbing'
+                    : 'cursor-grab'
+                  : ''
+              }`}
+              onWheel={handlePreviewWheel}
+              onMouseDown={handlePreviewMouseDown}
+              onMouseMove={handlePreviewMouseMove}
+              onMouseUp={stopPreviewDrag}
+            >
+              <img
+                src={previewImage.url}
+                alt={previewImage.title || t('图片预览')}
+                draggable={false}
+                className='mx-auto block h-auto object-contain'
+                style={{
+                  width: `${previewZoom * 100}%`,
+                  maxWidth: previewZoom <= 1 ? '100%' : 'none',
+                  maxHeight: previewZoom <= 1 ? '75vh' : 'none',
+                }}
+              />
+            </div>
           </div>
         )}
       </Modal>
-
     </div>
   );
 };
