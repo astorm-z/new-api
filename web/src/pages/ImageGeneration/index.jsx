@@ -66,7 +66,6 @@ const RESPONSE_MODEL_PRIORITY = [
   'gpt-4.1-nano',
   'gpt-4o',
   'gpt-4o-mini',
-  'o3',
 ];
 const HISTORY_STORAGE_KEY = 'ai_image_generation_history';
 const FORM_STORAGE_KEY = 'ai_image_generation_form';
@@ -175,13 +174,18 @@ const getBestModel = (availableModels = []) => {
 const isImageToolModelName = (model) => {
   const normalized = String(model || '').toLowerCase();
   return (
-    SUPPORTED_IMAGE_MODELS.includes(model) ||
+    SUPPORTED_IMAGE_MODELS.includes(normalized) ||
     normalized.includes('gpt-image') ||
     normalized.includes('chatgpt-image') ||
     normalized.startsWith('dall-e') ||
     normalized.startsWith('flux') ||
     normalized.startsWith('imagen-')
   );
+};
+
+const isResponseModelName = (model) => {
+  const normalized = String(model || '').toLowerCase();
+  return normalized.startsWith('gpt-') && !isImageToolModelName(normalized);
 };
 
 const getBestResponseModel = (availableModels = []) => {
@@ -191,7 +195,7 @@ const getBestResponseModel = (availableModels = []) => {
   );
   if (preferredModel) return preferredModel;
   return (
-    availableModels.find((model) => !isImageToolModelName(model)) ||
+    availableModels.find((model) => isResponseModelName(model)) ||
     RESPONSE_MODEL_PRIORITY[0]
   );
 };
@@ -553,6 +557,36 @@ const maskTokenKey = (key) => {
 
 const formatTokenOptionLabel = (token) =>
   `${token.name || `#${token.id}`}(${maskTokenKey(token.key)})`;
+
+const normalizeStringList = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+
+const normalizeOpenAIGroupInfo = (data) => ({
+  groups: new Set(normalizeStringList(data?.groups)),
+  autoGroups: normalizeStringList(data?.auto_groups),
+  userGroup: String(data?.user_group || '').trim(),
+});
+
+const tokenHasOpenAIGroup = (token, groupInfo) => {
+  if (!token || groupInfo.groups.size === 0) return false;
+
+  const tokenGroups = String(token.group || '')
+    .split(',')
+    .map((group) => group.trim())
+    .filter(Boolean);
+  const groups = tokenGroups.length > 0 ? tokenGroups : [groupInfo.userGroup];
+
+  return groups.some((group) => {
+    if (group === 'auto') {
+      return groupInfo.autoGroups.some((autoGroup) =>
+        groupInfo.groups.has(autoGroup),
+      );
+    }
+    return groupInfo.groups.has(group);
+  });
+};
 
 const sanitizeHistoryImages = (images) =>
   (Array.isArray(images) ? images : [])
@@ -988,7 +1022,6 @@ const ImageGeneration = () => {
   useEffect(() => {
     const formToSave = omitPartialImages(form);
     delete formToSave.count;
-    formToSave.tokenId = undefined;
     localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(formToSave));
   }, [form]);
 
@@ -1024,11 +1057,11 @@ const ImageGeneration = () => {
           return allTokens.filter((token) => token.status === 1);
         };
 
-        const [activeTokens, modelRes] = await Promise.all([
+        const [activeTokens, modelRes, openAIGroupRes] = await Promise.all([
           loadAllTokens(),
           API.get('/api/user/models'),
+          API.get('/api/user/self/openai-groups'),
         ]);
-        setTokens(activeTokens);
 
         const {
           success: modelSuccess,
@@ -1039,6 +1072,21 @@ const ImageGeneration = () => {
           throw new Error(modelMessage || t('加载生图配置失败'));
         }
 
+        const {
+          success: openAIGroupSuccess,
+          message: openAIGroupMessage,
+          data: openAIGroupData,
+        } = openAIGroupRes.data || {};
+        if (!openAIGroupSuccess) {
+          throw new Error(openAIGroupMessage || t('加载生图配置失败'));
+        }
+
+        const openAIGroupInfo = normalizeOpenAIGroupInfo(openAIGroupData);
+        const openAITokens = activeTokens.filter((token) =>
+          tokenHasOpenAIGroup(token, openAIGroupInfo),
+        );
+        setTokens(openAITokens);
+
         const userModels = Array.isArray(modelData) ? modelData : [];
         const usableModels = SUPPORTED_IMAGE_MODELS.filter((model) =>
           userModels.includes(model),
@@ -1048,7 +1096,7 @@ const ImageGeneration = () => {
         );
         const fallbackResponseModels = userModels.filter(
           (model) =>
-            !isImageToolModelName(model) &&
+            isResponseModelName(model) &&
             !preferredResponseModels.includes(model),
         );
         const usableResponseModels = [
@@ -1079,12 +1127,12 @@ const ImageGeneration = () => {
         setForm((prev) => {
           const tokenId =
             prev.tokenId &&
-            activeTokens.some(
+            openAITokens.some(
               (token) => String(token.id) === String(prev.tokenId),
             )
               ? String(prev.tokenId)
-              : activeTokens[0]?.id
-                ? String(activeTokens[0].id)
+              : openAITokens[0]?.id
+                ? String(openAITokens[0].id)
                 : undefined;
           const validModel = usableModels.includes(prev.model)
             ? prev.model

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -36,6 +37,24 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 		Where("abilities.enabled = ?", true).
 		Scan(&abilities).Error
 	return abilities, err
+}
+
+func GetOpenAIResponseChannelGroups() ([]string, error) {
+	var groups []string
+	abilityGroupCol := "abilities." + commonGroupCol
+	err := DB.Table("abilities").
+		Joins("join channels on abilities.channel_id = channels.id").
+		Where(
+			"abilities.enabled = ? and channels.status = ? and channels.type = ? and abilities.model LIKE ? and abilities.model NOT LIKE ?",
+			true,
+			common.ChannelStatusEnabled,
+			constant.ChannelTypeOpenAI,
+			"gpt-%",
+			"gpt-image-%",
+		).
+		Distinct(abilityGroupCol).
+		Pluck(abilityGroupCol, &groups).Error
+	return groups, err
 }
 
 func GetGroupEnabledModels(group string) []string {
