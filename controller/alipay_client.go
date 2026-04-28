@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,12 +42,12 @@ type alipayClient struct {
 }
 
 type alipayPagePayArgs struct {
-	OutTradeNo string
-	Subject    string
+	OutTradeNo  string
+	Subject     string
 	TotalAmount float64
-	NotifyURL  string
-	ReturnURL  string
-	Body       string
+	NotifyURL   string
+	ReturnURL   string
+	Body        string
 }
 
 type alipayVerifyInfo struct {
@@ -133,7 +134,7 @@ func (c *alipayClient) BuildPagePayParams(args *alipayPagePayArgs) (string, map[
 	}
 	params["sign"] = sign
 
-	return c.gatewayURL, params, nil
+	return buildAlipayPagePaySubmit(c.gatewayURL, params)
 }
 
 func (c *alipayClient) Verify(params map[string]string) (*alipayVerifyInfo, error) {
@@ -202,7 +203,7 @@ func (c *alipayClient) sign(params map[string]string) (string, error) {
 func buildAlipaySignContent(params map[string]string) string {
 	keys := make([]string, 0, len(params))
 	for key, value := range params {
-		if key == "sign" || key == "sign_type" || strings.TrimSpace(value) == "" {
+		if key == "sign" || strings.TrimSpace(value) == "" {
 			continue
 		}
 		keys = append(keys, key)
@@ -214,6 +215,29 @@ func buildAlipaySignContent(params map[string]string) string {
 		parts = append(parts, fmt.Sprintf("%s=%s", key, params[key]))
 	}
 	return strings.Join(parts, "&")
+}
+
+func buildAlipayPagePaySubmit(gatewayURL string, params map[string]string) (string, map[string]string, error) {
+	endpoint, err := url.Parse(gatewayURL)
+	if err != nil {
+		return "", nil, err
+	}
+
+	query := endpoint.Query()
+	postParams := map[string]string{}
+	for key, value := range params {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		if key == "biz_content" {
+			postParams[key] = value
+			continue
+		}
+		query.Set(key, value)
+	}
+
+	endpoint.RawQuery = query.Encode()
+	return endpoint.String(), postParams, nil
 }
 
 func parseAlipayPrivateKey(key string) (*rsa.PrivateKey, error) {
