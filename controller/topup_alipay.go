@@ -28,10 +28,16 @@ type AlipayAmountRequest struct {
 	DirectCNY bool  `json:"direct_cny"`
 }
 
-func shouldUseAlipayDirectCNYRequest(directCNY bool) bool {
-	return directCNY &&
-		operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeCNY &&
+func shouldUseAlipayDirectCNYRequest(_ bool) bool {
+	return operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeCNY &&
 		operation_setting.USDExchangeRate > 0
+}
+
+func getAlipayExchangeRate() float64 {
+	if setting.AlipayExchangeRate > 0 {
+		return setting.AlipayExchangeRate
+	}
+	return setting.DefaultAlipayExchangeRate
 }
 
 func getAlipayMinTopup(_ bool) int64 {
@@ -45,15 +51,17 @@ func getAlipayMinTopup(_ bool) int64 {
 func getAlipayPayMoney(amount int64, group string, directCNY bool) float64 {
 	originalAmount := amount
 	dAmount := decimal.NewFromInt(amount)
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+	dAlipayExchangeRate := decimal.NewFromFloat(getAlipayExchangeRate())
+	switch operation_setting.GetQuotaDisplayType() {
+	case operation_setting.QuotaDisplayTypeTokens:
 		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-		dAmount = dAmount.Div(dQuotaPerUnit)
-	} else if shouldUseAlipayDirectCNYRequest(directCNY) {
-		dRate := decimal.NewFromFloat(operation_setting.USDExchangeRate)
-		if dRate.LessThanOrEqual(decimal.Zero) {
+		dAmount = dAmount.Div(dQuotaPerUnit).Mul(dAlipayExchangeRate)
+	case operation_setting.QuotaDisplayTypeCNY:
+		if !shouldUseAlipayDirectCNYRequest(directCNY) {
 			return 0
 		}
-		dAmount = dAmount.Div(dRate)
+	default:
+		dAmount = dAmount.Mul(dAlipayExchangeRate)
 	}
 
 	topupGroupRatio := common.GetTopupGroupRatio(group)
@@ -62,7 +70,6 @@ func getAlipayPayMoney(amount int64, group string, directCNY bool) float64 {
 	}
 
 	dTopupGroupRatio := decimal.NewFromFloat(topupGroupRatio)
-	dPrice := decimal.NewFromFloat(operation_setting.Price)
 	discount := 1.0
 	if ds, ok := operation_setting.GetPaymentSetting().AmountDiscount[int(originalAmount)]; ok {
 		if ds > 0 {
@@ -71,7 +78,7 @@ func getAlipayPayMoney(amount int64, group string, directCNY bool) float64 {
 	}
 	dDiscount := decimal.NewFromFloat(discount)
 
-	payMoney := dAmount.Mul(dPrice).Mul(dTopupGroupRatio).Mul(dDiscount)
+	payMoney := dAmount.Mul(dTopupGroupRatio).Mul(dDiscount)
 	return payMoney.InexactFloat64()
 }
 
@@ -156,12 +163,12 @@ func RequestAlipayPay(c *gin.Context) {
 
 	tradeNo := fmt.Sprintf("ALIUSR%dNO%s%d", id, common.GetRandomString(6), time.Now().Unix())
 	gatewayURL, params, err := client.BuildPagePayParams(&alipayPagePayArgs{
-		OutTradeNo: tradeNo,
-		Subject:    fmt.Sprintf("账户充值 %d", req.Amount),
+		OutTradeNo:  tradeNo,
+		Subject:     fmt.Sprintf("账户充值 %d", req.Amount),
 		TotalAmount: payMoney,
-		NotifyURL:  notifyURL,
-		ReturnURL:  returnURL,
-		Body:       "new-api topup",
+		NotifyURL:   notifyURL,
+		ReturnURL:   returnURL,
+		Body:        "new-api topup",
 	})
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
@@ -176,18 +183,18 @@ func RequestAlipayPay(c *gin.Context) {
 	}
 
 	topUp := &model.TopUp{
-		UserId:        id,
-		Amount:        amount,
-		Money:         payMoney,
-		TradeNo:       tradeNo,
+		UserId:  id,
+		Amount:  amount,
+		Money:   payMoney,
+		TradeNo: tradeNo,
 		PaymentMethod: func() string {
 			if shouldUseAlipayDirectCNYRequest(req.DirectCNY) {
 				return PaymentMethodEnterpriseAlipayCNY
 			}
 			return PaymentMethodEnterpriseAlipay
 		}(),
-		CreateTime:    time.Now().Unix(),
-		Status:        common.TopUpStatusPending,
+		CreateTime: time.Now().Unix(),
+		Status:     common.TopUpStatusPending,
 	}
 	if err := topUp.Insert(); err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "创建订单失败"})

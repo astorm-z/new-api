@@ -60,6 +60,7 @@ const TopUp = () => {
   );
   const [enableAlipayTopUp, setEnableAlipayTopUp] = useState(false);
   const [enableAlipayDirectCNY, setEnableAlipayDirectCNY] = useState(false);
+  const [alipayExchangeRate, setAlipayExchangeRate] = useState(7.3);
   const [priceRatio, setPriceRatio] = useState(statusState?.status?.price || 1);
 
   const [enableStripeTopUp, setEnableStripeTopUp] = useState(
@@ -115,24 +116,6 @@ const TopUp = () => {
     discount: {},
   });
 
-  const getUsdExchangeRate = () => {
-    const statusRate = Number(statusState?.status?.usd_exchange_rate);
-    if (Number.isFinite(statusRate) && statusRate > 0) {
-      return statusRate;
-    }
-    try {
-      const storedStatus = localStorage.getItem('status');
-      if (storedStatus) {
-        const parsed = JSON.parse(storedStatus);
-        const storedRate = Number(parsed?.usd_exchange_rate);
-        if (Number.isFinite(storedRate) && storedRate > 0) {
-          return storedRate;
-        }
-      }
-    } catch (e) {}
-    return 1;
-  };
-
   const convertBaseAmountToAlipayDirectCNY = (amount) => {
     const numericAmount = Number(amount);
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -143,13 +126,17 @@ const TopUp = () => {
 
   const getEffectiveTopupPriceRatio = () => {
     if (!enableAlipayDirectCNY) {
+      if (
+        enableAlipayTopUp &&
+        !enableOnlineTopUp &&
+        !enableStripeTopUp &&
+        !enableWaffoTopUp
+      ) {
+        return alipayExchangeRate;
+      }
       return priceRatio;
     }
-    const usdExchangeRate = getUsdExchangeRate();
-    if (!Number.isFinite(usdExchangeRate) || usdExchangeRate <= 0) {
-      return priceRatio;
-    }
-    return priceRatio / usdExchangeRate;
+    return 1;
   };
 
   const topUp = async () => {
@@ -589,6 +576,7 @@ const TopUp = () => {
           setEnableOnlineTopUp(enableOnlineTopUp);
           setEnableAlipayTopUp(enableAlipayTopUp);
           setEnableAlipayDirectCNY(enableAlipayDirectCNY);
+          setAlipayExchangeRate(Number(data.alipay_exchange_rate) || 7.3);
           setEnableStripeTopUp(enableStripeTopUp);
           setEnableCreemTopUp(enableCreemTopUp);
           setEnableWaffoTopUp(enableWaffoTopUp);

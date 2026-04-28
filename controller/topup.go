@@ -86,26 +86,27 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"enable_online_topup":     enableOnlineTopUp,
-		"enable_alipay_topup":     enableAlipay,
-		"enable_alipay_direct_cny": shouldUseAlipayDirectCNYMode(enableAlipay, enableOnlineTopUp, enableStripeTopUp, enableWaffo),
-		"enable_stripe_topup":     enableStripeTopUp,
-		"enable_creem_topup":      setting.CreemApiKey != "" && setting.CreemProducts != "[]",
-		"enable_waffo_topup": enableWaffo,
+		"enable_online_topup":      enableOnlineTopUp,
+		"enable_alipay_topup":      enableAlipay,
+		"enable_alipay_direct_cny": shouldUseAlipayDirectCNYMode(enableAlipay),
+		"enable_stripe_topup":      enableStripeTopUp,
+		"enable_creem_topup":       setting.CreemApiKey != "" && setting.CreemProducts != "[]",
+		"enable_waffo_topup":       enableWaffo,
 		"waffo_pay_methods": func() interface{} {
 			if enableWaffo {
 				return setting.GetWaffoPayMethods()
 			}
 			return nil
 		}(),
-		"creem_products": setting.CreemProducts,
-		"pay_methods":         payMethods,
-		"min_topup":           operation_setting.MinTopUp,
-		"alipay_min_topup":    setting.AlipayMinTopUp,
-		"stripe_min_topup":    setting.StripeMinTopUp,
-		"waffo_min_topup":     setting.WaffoMinTopUp,
-		"amount_options":      operation_setting.GetPaymentSetting().AmountOptions,
-		"discount":            operation_setting.GetPaymentSetting().AmountDiscount,
+		"creem_products":       setting.CreemProducts,
+		"pay_methods":          payMethods,
+		"min_topup":            operation_setting.MinTopUp,
+		"alipay_min_topup":     setting.AlipayMinTopUp,
+		"alipay_exchange_rate": getAlipayExchangeRate(),
+		"stripe_min_topup":     setting.StripeMinTopUp,
+		"waffo_min_topup":      setting.WaffoMinTopUp,
+		"amount_options":       operation_setting.GetPaymentSetting().AmountOptions,
+		"discount":             operation_setting.GetPaymentSetting().AmountDiscount,
 	}
 	common.ApiSuccess(c, data)
 }
@@ -119,11 +120,8 @@ func containsPayMethodType(payMethods []map[string]string, payMethodType string)
 	return false
 }
 
-func shouldUseAlipayDirectCNYMode(enableAlipay, enableOnlineTopUp, enableStripeTopUp, enableWaffo bool) bool {
+func shouldUseAlipayDirectCNYMode(enableAlipay bool) bool {
 	return enableAlipay &&
-		!enableOnlineTopUp &&
-		!enableStripeTopUp &&
-		!enableWaffo &&
 		operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeCNY &&
 		operation_setting.USDExchangeRate > 0
 }

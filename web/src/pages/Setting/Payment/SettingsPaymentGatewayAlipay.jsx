@@ -49,6 +49,7 @@ export default function SettingsPaymentGatewayAlipay(props) {
     AlipayReturnURL: '',
     AlipaySubscriptionReturnURL: '',
     AlipayMinTopUp: 1,
+    AlipayExchangeRate: 7.3,
   });
   const formApiRef = useRef(null);
 
@@ -69,6 +70,10 @@ export default function SettingsPaymentGatewayAlipay(props) {
           props.options.AlipayMinTopUp !== undefined
             ? parseFloat(props.options.AlipayMinTopUp) || 1
             : 1,
+        AlipayExchangeRate:
+          props.options.AlipayExchangeRate !== undefined
+            ? parseFloat(props.options.AlipayExchangeRate) || 7.3
+            : 7.3,
       };
       setInputs(currentInputs);
       formApiRef.current.setValues(currentInputs);
@@ -99,6 +104,10 @@ export default function SettingsPaymentGatewayAlipay(props) {
         {
           key: 'AlipayMinTopUp',
           value: String(inputs.AlipayMinTopUp || 1),
+        },
+        {
+          key: 'AlipayExchangeRate',
+          value: String(inputs.AlipayExchangeRate || 7.3),
         },
       ];
 
@@ -193,6 +202,24 @@ export default function SettingsPaymentGatewayAlipay(props) {
                 placeholder={t('例如：1')}
                 min={1}
                 precision={0}
+              />
+            </Col>
+          </Row>
+
+          <Row
+            gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+            style={{ marginTop: 16 }}
+          >
+            <Col xs={24} sm={24} md={8} lg={8} xl={8}>
+              <Form.InputNumber
+                field='AlipayExchangeRate'
+                label={t('企业支付宝汇率（元/美元）')}
+                placeholder={t('例如：7.3')}
+                min={0.01}
+                precision={4}
+                extraText={t(
+                  '站点额度展示为 USD 时使用；展示为 CNY 时按 1:1 收款',
+                )}
               />
             </Col>
           </Row>

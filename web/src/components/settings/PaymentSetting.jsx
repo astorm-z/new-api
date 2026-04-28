@@ -43,6 +43,7 @@ const PaymentSetting = () => {
     AlipayReturnURL: '',
     AlipaySubscriptionReturnURL: '',
     AlipayMinTopUp: 1,
+    AlipayExchangeRate: 7.3,
     Price: 7.3,
     MinTopUp: 1,
     TopupGroupRatio: '',
@@ -103,6 +104,7 @@ const PaymentSetting = () => {
             break;
           case 'Price':
           case 'MinTopUp':
+          case 'AlipayExchangeRate':
           case 'StripeUnitPrice':
           case 'StripeMinTopUp':
             newInputs[item.key] = parseFloat(item.value);
