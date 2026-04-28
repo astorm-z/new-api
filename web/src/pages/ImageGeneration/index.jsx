@@ -1485,6 +1485,7 @@ const ImageGeneration = () => {
       quality: form.quality || 'auto',
       output_format: outputFormat,
       background: form.background || 'auto',
+      moderation: 'low',
       partial_images: 0,
     };
 
