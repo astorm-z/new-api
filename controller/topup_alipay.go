@@ -215,23 +215,27 @@ func AlipayNotify(c *gin.Context) {
 func AlipayReturn(c *gin.Context) {
 	params, err := getAlipayRequestParams(c)
 	if err != nil || len(params) == 0 {
+		common.SysError(fmt.Sprintf("alipay return parse params failed: %v", err))
 		c.Redirect(http.StatusFound, getAlipayConsoleTopupURL("fail"))
 		return
 	}
 
 	client, err := GetAlipayClient()
 	if err != nil || client == nil {
+		common.SysError(fmt.Sprintf("alipay return client init failed, trade_no=%s, err=%v", params["out_trade_no"], err))
 		c.Redirect(http.StatusFound, getAlipayConsoleTopupURL("fail"))
 		return
 	}
 	verifyInfo, err := client.Verify(params)
 	if err != nil {
+		common.SysError(fmt.Sprintf("alipay return verify failed, trade_no=%s, err=%v", params["out_trade_no"], err))
 		c.Redirect(http.StatusFound, getAlipayConsoleTopupURL("fail"))
 		return
 	}
 
 	if isAlipayTradeSuccess(verifyInfo.TradeStatus) {
 		if err := completeAlipayTrade(verifyInfo); err != nil {
+			common.SysError(fmt.Sprintf("alipay return complete failed, trade_no=%s, err=%v", verifyInfo.OutTradeNo, err))
 			c.Redirect(http.StatusFound, getAlipayConsoleTopupURL("fail"))
 			return
 		}
@@ -251,23 +255,27 @@ func AlipayReturn(c *gin.Context) {
 func handleAlipayNotify(c *gin.Context) {
 	params, err := getAlipayRequestParams(c)
 	if err != nil || len(params) == 0 {
+		common.SysError(fmt.Sprintf("alipay notify parse params failed: %v", err))
 		c.String(http.StatusOK, "failure")
 		return
 	}
 
 	client, err := GetAlipayClient()
 	if err != nil || client == nil {
+		common.SysError(fmt.Sprintf("alipay notify client init failed, trade_no=%s, err=%v", params["out_trade_no"], err))
 		c.String(http.StatusOK, "failure")
 		return
 	}
 	verifyInfo, err := client.Verify(params)
 	if err != nil {
+		common.SysError(fmt.Sprintf("alipay notify verify failed, trade_no=%s, err=%v", params["out_trade_no"], err))
 		c.String(http.StatusOK, "failure")
 		return
 	}
 
 	if isAlipayTradeSuccess(verifyInfo.TradeStatus) {
 		if err := completeAlipayTrade(verifyInfo); err != nil {
+			common.SysError(fmt.Sprintf("alipay notify complete failed, trade_no=%s, err=%v", verifyInfo.OutTradeNo, err))
 			c.String(http.StatusOK, "failure")
 			return
 		}

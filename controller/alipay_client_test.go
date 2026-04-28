@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"net/url"
 	"testing"
 )
@@ -63,8 +66,14 @@ func TestBuildPagePayParamsPutsCommonParamsInGatewayURL(t *testing.T) {
 	for key, value := range postParams {
 		allParams[key] = value
 	}
-	if _, err := client.Verify(allParams); err != nil {
-		t.Fatalf("Verify(combined gateway query and post params) error = %v", err)
+	signatureBytes, err := base64.StdEncoding.DecodeString(allParams["sign"])
+	if err != nil {
+		t.Fatalf("DecodeString(sign) error = %v", err)
+	}
+	signContent := buildAlipaySignContent(allParams)
+	hash := sha256.Sum256([]byte(signContent))
+	if err := rsa.VerifyPKCS1v15(client.publicKey, crypto.SHA256, hash[:], signatureBytes); err != nil {
+		t.Fatalf("request signature verification error = %v", err)
 	}
 }
 
@@ -86,5 +95,27 @@ func TestBuildAlipaySignContentIncludesSignType(t *testing.T) {
 	want := `app_id=2021006147633929&biz_content={"body":"new-api topup","out_trade_no":"ALIUSR1NOfZTbH21777394692","product_code":"FAST_INSTANT_TRADE_PAY","subject":"账户充值 1","total_amount":"1.00"}&charset=utf-8&format=JSON&method=alipay.trade.page.pay&notify_url=http://localhost:3000/api/user/alipay/notify&return_url=http://localhost:3000/api/user/alipay/return&sign_type=RSA2&timestamp=2026-04-29 00:44:52&version=1.0`
 	if got := buildAlipaySignContent(params); got != want {
 		t.Fatalf("buildAlipaySignContent() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildAlipayVerifySignContentExcludesSignType(t *testing.T) {
+	params := map[string]string{
+		"app_id":       "2021006147633929",
+		"auth_app_id":  "2021006147633929",
+		"charset":      "utf-8",
+		"method":       "alipay.trade.page.pay.return",
+		"out_trade_no": "ALIUSR1NOhTqqU21777398396",
+		"seller_id":    "2088480800445650",
+		"sign":         "ignored",
+		"sign_type":    "RSA2",
+		"timestamp":    "2026-04-29 01:46:53",
+		"total_amount": "1.00",
+		"trade_no":     "2026042922001476631454719538",
+		"version":      "1.0",
+	}
+
+	want := `app_id=2021006147633929&auth_app_id=2021006147633929&charset=utf-8&method=alipay.trade.page.pay.return&out_trade_no=ALIUSR1NOhTqqU21777398396&seller_id=2088480800445650&timestamp=2026-04-29 01:46:53&total_amount=1.00&trade_no=2026042922001476631454719538&version=1.0`
+	if got := buildAlipayVerifySignContent(params); got != want {
+		t.Fatalf("buildAlipayVerifySignContent() = %q, want %q", got, want)
 	}
 }
