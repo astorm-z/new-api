@@ -155,7 +155,7 @@ func (c *alipayClient) Verify(params map[string]string) (*alipayVerifyInfo, erro
 		return nil, err
 	}
 
-	signContent := buildAlipaySignContent(params)
+	signContent := buildAlipayVerifySignContent(params)
 	hash := sha256.Sum256([]byte(signContent))
 	if err := rsa.VerifyPKCS1v15(c.publicKey, crypto.SHA256, hash[:], signatureBytes); err != nil {
 		return nil, err
@@ -201,9 +201,17 @@ func (c *alipayClient) sign(params map[string]string) (string, error) {
 }
 
 func buildAlipaySignContent(params map[string]string) string {
+	return buildAlipaySignContentWithOptions(params, false)
+}
+
+func buildAlipayVerifySignContent(params map[string]string) string {
+	return buildAlipaySignContentWithOptions(params, true)
+}
+
+func buildAlipaySignContentWithOptions(params map[string]string, excludeSignType bool) string {
 	keys := make([]string, 0, len(params))
 	for key, value := range params {
-		if key == "sign" || strings.TrimSpace(value) == "" {
+		if key == "sign" || (excludeSignType && key == "sign_type") || strings.TrimSpace(value) == "" {
 			continue
 		}
 		keys = append(keys, key)
