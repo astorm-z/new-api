@@ -959,7 +959,6 @@ const TopUp = () => {
           selectedPreset={selectedPreset}
           selectPresetAmount={selectPresetAmount}
           formatLargeNumber={formatLargeNumber}
-          priceRatio={getEffectiveTopupPriceRatio()}
           directCnyTopupMode={enableAlipayDirectCNY}
           topUpCount={topUpCount}
           minTopUp={minTopUp}

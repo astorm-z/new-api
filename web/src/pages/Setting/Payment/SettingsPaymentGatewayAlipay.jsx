@@ -93,8 +93,6 @@ export default function SettingsPaymentGatewayAlipay(props) {
           value: inputs.AlipayEnabled ? 'true' : 'false',
         },
         { key: 'AlipayAppID', value: inputs.AlipayAppID || '' },
-        { key: 'AlipayPrivateKey', value: inputs.AlipayPrivateKey || '' },
-        { key: 'AlipayPublicKey', value: inputs.AlipayPublicKey || '' },
         { key: 'AlipayNotifyURL', value: inputs.AlipayNotifyURL || '' },
         { key: 'AlipayReturnURL', value: inputs.AlipayReturnURL || '' },
         {
@@ -110,6 +108,19 @@ export default function SettingsPaymentGatewayAlipay(props) {
           value: String(inputs.AlipayExchangeRate || 7.3),
         },
       ];
+
+      if (String(inputs.AlipayPrivateKey || '').trim() !== '') {
+        options.push({
+          key: 'AlipayPrivateKey',
+          value: inputs.AlipayPrivateKey,
+        });
+      }
+      if (String(inputs.AlipayPublicKey || '').trim() !== '') {
+        options.push({
+          key: 'AlipayPublicKey',
+          value: inputs.AlipayPublicKey,
+        });
+      }
 
       const results = await Promise.all(
         options.map((opt) =>

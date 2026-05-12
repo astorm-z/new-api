@@ -64,7 +64,6 @@ const RechargeCard = ({
   selectedPreset,
   selectPresetAmount,
   formatLargeNumber,
-  priceRatio,
   directCnyTopupMode = false,
   topUpCount,
   minTopUp,
@@ -397,11 +396,7 @@ const RechargeCard = ({
                     {presetAmounts.map((preset, index) => {
                       const discount =
                         preset.discount || topupInfo?.discount?.[preset.value] || 1.0;
-                      const originalPrice = preset.value * priceRatio;
-                      const discountedPrice = originalPrice * discount;
                       const hasDiscount = discount < 1.0;
-                      const actualPay = discountedPrice;
-                      const save = originalPrice - discountedPrice;
 
                       // 根据当前货币类型换算显示金额和数量
                       const { symbol, rate, type } = getCurrencyConfig();
@@ -415,23 +410,11 @@ const RechargeCard = ({
                       } catch (e) { }
 
                       let displayValue = preset.value; // 显示的数量
-                      let displayActualPay = actualPay;
-                      let displaySave = save;
 
-                      if (directCnyTopupMode && type === 'CNY') {
-                        displayValue = preset.value;
-                      } else if (type === 'USD') {
-                        // 数量保持USD，价格从CNY转USD
-                        displayActualPay = actualPay / usdRate;
-                        displaySave = save / usdRate;
-                      } else if (type === 'CNY') {
-                        // 数量转CNY，价格已是CNY
+                      if (type === 'CNY' && !directCnyTopupMode) {
                         displayValue = preset.value * usdRate;
                       } else if (type === 'CUSTOM') {
-                        // 数量和价格都转自定义货币
                         displayValue = preset.value * rate;
-                        displayActualPay = (actualPay / usdRate) * rate;
-                        displaySave = (save / usdRate) * rate;
                       }
 
                       return (
@@ -471,19 +454,6 @@ const RechargeCard = ({
                                 </Tag>
                               )}
                             </Typography.Title>
-                            <div
-                              style={{
-                                color: 'var(--semi-color-text-2)',
-                                fontSize: '12px',
-                                margin: '4px 0',
-                              }}
-                            >
-                              {t('实付')} {symbol}
-                              {displayActualPay.toFixed(2)}，
-                              {hasDiscount
-                                ? `${t('节省')} ${symbol}${displaySave.toFixed(2)}`
-                                : `${t('节省')} ${symbol}0.00`}
-                            </div>
                           </div>
                         </Card>
                       );
