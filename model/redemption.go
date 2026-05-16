@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -61,6 +63,8 @@ func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total 
 }
 
 func SearchRedemptions(keyword string, startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
+	keyword = strings.TrimSpace(keyword)
+
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -73,13 +77,19 @@ func SearchRedemptions(keyword string, startIdx int, num int) (redemptions []*Re
 
 	// Build query based on keyword type
 	query := tx.Model(&Redemption{})
+	conditions := []string{"name LIKE ?"}
+	args := []any{keyword + "%"}
 
 	// Only try to convert to ID if the string represents a valid integer
 	if id, err := strconv.Atoi(keyword); err == nil {
-		query = query.Where("id = ? OR name LIKE ?", id, keyword+"%")
-	} else {
-		query = query.Where("name LIKE ?", keyword+"%")
+		conditions = append(conditions, "id = ?")
+		args = append(args, id)
 	}
+	if utf8.RuneCountInString(keyword) >= 6 {
+		conditions = append(conditions, commonKeyCol+" = ?")
+		args = append(args, keyword)
+	}
+	query = query.Where(strings.Join(conditions, " OR "), args...)
 
 	// Get total count
 	err = query.Count(&total).Error

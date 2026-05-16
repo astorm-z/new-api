@@ -128,9 +128,14 @@ export function RedemptionsTable() {
     globalFilterFn: (row, _columnId, filterValue) => {
       const name = String(row.getValue('name')).toLowerCase()
       const id = String(row.getValue('id'))
+      const code = String(row.getValue('code')).toLowerCase()
       const searchValue = String(filterValue).toLowerCase()
 
-      return name.includes(searchValue) || id.includes(searchValue)
+      return (
+        name.includes(searchValue) ||
+        id.includes(searchValue) ||
+        (searchValue.length >= 6 && code === searchValue)
+      )
     },
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -167,7 +172,7 @@ export function RedemptionsTable() {
       )}
       skeletonKeyPrefix='redemptions-skeleton'
       toolbarProps={{
-        searchPlaceholder: t('Filter by name or ID...'),
+        searchPlaceholder: t('Filter by name, ID, or code...'),
         filters: [
           {
             columnId: 'status',
