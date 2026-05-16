@@ -183,10 +183,11 @@ func RequestAlipayPay(c *gin.Context) {
 	}
 
 	topUp := &model.TopUp{
-		UserId:  id,
-		Amount:  amount,
-		Money:   payMoney,
-		TradeNo: tradeNo,
+		UserId:          id,
+		Amount:          amount,
+		Money:           payMoney,
+		TradeNo:         tradeNo,
+		PaymentProvider: model.PaymentProviderAlipay,
 		PaymentMethod: func() string {
 			if shouldUseAlipayDirectCNYRequest(req.DirectCNY) {
 				return PaymentMethodEnterpriseAlipayCNY
@@ -323,7 +324,7 @@ func expireAlipayTrade(tradeNo string) {
 	if model.GetSubscriptionOrderByTradeNo(tradeNo) != nil {
 		LockOrder(tradeNo)
 		defer UnlockOrder(tradeNo)
-		_ = model.ExpireSubscriptionOrder(tradeNo)
+		_ = model.ExpireSubscriptionOrder(tradeNo, model.PaymentProviderAlipay)
 	}
 }
 
@@ -365,7 +366,12 @@ func completeAlipaySubscription(verifyInfo *alipayVerifyInfo) error {
 	if !isAlipayAmountMatched(latest.Money, verifyInfo.TotalAmount) {
 		return fmt.Errorf("支付金额校验失败")
 	}
-	return model.CompleteSubscriptionOrder(verifyInfo.OutTradeNo, common.GetJsonString(verifyInfo.RawParams))
+	return model.CompleteSubscriptionOrder(
+		verifyInfo.OutTradeNo,
+		common.GetJsonString(verifyInfo.RawParams),
+		model.PaymentProviderAlipay,
+		PaymentMethodEnterpriseAlipay,
+	)
 }
 
 func isAlipayAmountMatched(expected, actual float64) bool {

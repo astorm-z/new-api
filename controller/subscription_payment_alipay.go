@@ -73,12 +73,12 @@ func SubscriptionRequestAlipayPay(c *gin.Context) {
 
 	tradeNo := fmt.Sprintf("SUBALIUSR%dNO%s%d", userId, common.GetRandomString(6), time.Now().Unix())
 	gatewayURL, params, err := client.BuildPagePayParams(&alipayPagePayArgs{
-		OutTradeNo: tradeNo,
-		Subject:    fmt.Sprintf("订阅套餐 %s", plan.Title),
+		OutTradeNo:  tradeNo,
+		Subject:     fmt.Sprintf("订阅套餐 %s", plan.Title),
 		TotalAmount: plan.PriceAmount,
-		NotifyURL:  notifyURL,
-		ReturnURL:  returnURL,
-		Body:       "new-api subscription",
+		NotifyURL:   notifyURL,
+		ReturnURL:   returnURL,
+		Body:        "new-api subscription",
 	})
 	if err != nil {
 		common.ApiErrorMsg(c, "拉起支付失败")
@@ -86,13 +86,14 @@ func SubscriptionRequestAlipayPay(c *gin.Context) {
 	}
 
 	order := &model.SubscriptionOrder{
-		UserId:        userId,
-		PlanId:        plan.Id,
-		Money:         plan.PriceAmount,
-		TradeNo:       tradeNo,
-		PaymentMethod: PaymentMethodEnterpriseAlipay,
-		CreateTime:    time.Now().Unix(),
-		Status:        common.TopUpStatusPending,
+		UserId:          userId,
+		PlanId:          plan.Id,
+		Money:           plan.PriceAmount,
+		TradeNo:         tradeNo,
+		PaymentMethod:   PaymentMethodEnterpriseAlipay,
+		PaymentProvider: model.PaymentProviderAlipay,
+		CreateTime:      time.Now().Unix(),
+		Status:          common.TopUpStatusPending,
 	}
 	if err := order.Insert(); err != nil {
 		common.ApiErrorMsg(c, "创建订单失败")
